@@ -2,13 +2,12 @@ name: AQI Daily Model Training
 
 on:
   schedule:
-    # Runs daily at 01:00 UTC
     - cron: '0 1 * * *'
   workflow_dispatch:
 
 concurrency:
-  group: aqi-daily-train
-  cancel-in-progress: true
+  group: aqi-daily-train-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
 
 jobs:
   train-and-register:
