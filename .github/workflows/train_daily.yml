@@ -1,25 +1,25 @@
-name: AQI Hourly Data Collection
+name: AQI Daily Model Training
 
 on:
   schedule:
-    # Runs at the start of every hour (UTC)
-    - cron: '0 * * * *'
+    # Runs daily at 01:00 UTC
+    - cron: '0 1 * * *'
   workflow_dispatch:
 
 concurrency:
-  group: aqi-hourly
+  group: aqi-daily-train
   cancel-in-progress: true
 
 jobs:
-  collect-and-store:
+  train-and-register:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -28,11 +28,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run daily pipeline
+      - name: Train and register model
         env:
-          WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
-          STATION_ID: ${{ secrets.STATION_ID }}
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
           HOPSWORKS_PROJECT: ${{ secrets.HOPSWORKS_PROJECT }}
+          FEATURE_GROUP_NAME: ${{ vars.FEATURE_GROUP_NAME || 'aqi_features' }}
+          FEATURE_GROUP_VERSION: ${{ vars.FEATURE_GROUP_VERSION || '1' }}
         run: |
-          python daily_pipeline.py
+          python train_and_register_model.py
