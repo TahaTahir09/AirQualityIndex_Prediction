@@ -4,15 +4,14 @@ on:
   schedule:
     # Runs at the start of every hour (UTC)
     - cron: '0 * * * *'
-  workflow_dispatch:
-
-concurrency:
-  group: aqi-hourly
-  cancel-in-progress: true
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   collect-and-store:
     runs-on: ubuntu-latest
+    
+    # Remove concurrency to allow all runs
+    # concurrency settings were canceling runs
 
     steps:
       - name: Checkout code
@@ -22,6 +21,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
+          cache: 'pip'  # Cache pip dependencies for faster runs
 
       - name: Install dependencies
         run: |
@@ -36,3 +36,9 @@ jobs:
           HOPSWORKS_PROJECT: ${{ secrets.HOPSWORKS_PROJECT }}
         run: |
           python daily_pipeline.py
+          
+      - name: Check if data was collected
+        if: failure()
+        run: |
+          echo "::error::Data collection failed. Check logs above."
+          exit 1

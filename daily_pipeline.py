@@ -1,12 +1,14 @@
 from data_fetcher import fetch_daily_data
 from feature_store import store_features
 from datetime import datetime
+import os
 
 
-WAQI_API_TOKEN = "088661c637816f9f1463ca3e44d37da6d739d021"
-STATION_ID = "A401143"
-HOPSWORKS_API_KEY = "DOXxlrr308Rq2xqN.QmlA3Cfoy8ljM9h8nOiYYpxHA3EoSPGhp9qPBcONsXHRL7XIpsGjbcc80R3OoCz5"
-HOPSWORKS_PROJECT = "AQI_Project_10"
+# Use environment variables (for GitHub Actions) with fallback to hardcoded values (for local testing)
+WAQI_API_TOKEN = os.getenv("WAQI_API_TOKEN", "088661c637816f9f1463ca3e44d37da6d739d021")
+STATION_ID = os.getenv("STATION_ID", "A401143")
+HOPSWORKS_API_KEY = os.getenv("HOPSWORKS_API_KEY", "DOXxlrr308Rq2xqN.QmlA3Cfoy8ljM9h8nOiYYpxHA3EoSPGhp9qPBcONsXHRL7XIpsGjbcc80R3OoCz5")
+HOPSWORKS_PROJECT = os.getenv("HOPSWORKS_PROJECT", "AQI_Project_10")
 
 
 def main():
