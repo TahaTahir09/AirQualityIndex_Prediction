@@ -39,11 +39,17 @@ class WAQIDataFetcher:
         geo = city_info.get('geo', [None, None])
         time_info = raw_data.get('time', {})
         
+        # Use current collection time for timestamp to avoid duplicates
+        # API timestamp can be stale and cause primary key violations in Hopsworks
+        from datetime import datetime
+        collection_time = datetime.now()
+        
         parsed = {
-            'timestamp': time_info.get('s'),
-            'timestamp_unix': time_info.get('v'),
+            'timestamp': collection_time.strftime('%Y-%m-%d %H:%M:%S'),  # Use collection time
+            'timestamp_unix': int(collection_time.timestamp()),  # Collection time as unix
             'aqi': raw_data.get('aqi'),
             'station_name': city_info.get('name'),
+            'station_url': '',  # Keep for schema compatibility
             'latitude': geo[0] if len(geo) > 0 else None,
             'longitude': geo[1] if len(geo) > 1 else None,
             'pm25': iaqi.get('pm25', {}).get('v'),
