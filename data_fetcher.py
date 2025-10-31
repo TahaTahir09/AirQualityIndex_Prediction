@@ -179,6 +179,20 @@ class DataProcessor:
         else:
             df['pressure_temp_ratio'] = 0
 
+        # Convert all integer columns to int32 for Hopsworks compatibility
+        # Hopsworks expects 'int' (int32) not 'bigint' (int64)
+        int_columns = [
+            'pm25_imputed', 'pm10_imputed', 'o3_imputed', 'no2_imputed', 
+            'so2_imputed', 'co_imputed', 'temperature_imputed', 'humidity_imputed',
+            'pressure_imputed', 'wind_speed_imputed', 'dew_point_imputed',
+            'is_weekend', 'time_of_day_numeric', 'total_imputed_features',
+            'aqi_category_numeric', 'hour', 'day_of_week', 'day', 'month', 'year'
+        ]
+        
+        for col in int_columns:
+            if col in df.columns:
+                df[col] = df[col].astype('int32')
+
         return df
 
 
