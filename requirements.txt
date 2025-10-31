@@ -1,6 +1,7 @@
 requests
 pandas
-hopsworks
+hopsworks>=4.2.0,<4.3.0  # Match backend version 4.2.2
+pyarrow>=10.0.0  # Required by Hopsworks
 python-dotenv
 scikit-learn
 joblib
