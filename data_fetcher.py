@@ -179,19 +179,31 @@ class DataProcessor:
         else:
             df['pressure_temp_ratio'] = 0
 
-        # Convert all integer columns to int32 for Hopsworks compatibility
-        # Hopsworks expects 'int' (int32) not 'bigint' (int64)
-        int_columns = [
+        # Convert integer columns to match Hopsworks schema
+        # Schema expects int32 for most, int64 for aggregated/sum columns
+        
+        # Columns that need int32 (based on error messages)
+        int32_columns = [
             'pm25_imputed', 'pm10_imputed', 'o3_imputed', 'no2_imputed', 
             'so2_imputed', 'co_imputed', 'temperature_imputed', 'humidity_imputed',
             'pressure_imputed', 'wind_speed_imputed', 'dew_point_imputed',
-            'is_weekend', 'time_of_day_numeric', 'total_imputed_features',
-            'aqi_category_numeric', 'hour', 'day_of_week', 'day', 'month', 'year'
+            'is_weekend', 'time_of_day_numeric',
+            'hour', 'day_of_week', 'day', 'month', 'year'  # These also need int32
         ]
         
-        for col in int_columns:
+        # Columns that need int64/bigint (aggregations/sums)
+        int64_columns = [
+            'total_imputed_features',  # Sum of imputed columns
+            'aqi_category_numeric'     # Category number
+        ]
+        
+        for col in int32_columns:
             if col in df.columns:
                 df[col] = df[col].astype('int32')
+        
+        for col in int64_columns:
+            if col in df.columns:
+                df[col] = df[col].astype('int64')
 
         return df
 
