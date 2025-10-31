@@ -14,10 +14,27 @@ HOPSWORKS_PROJECT = os.getenv("HOPSWORKS_PROJECT", "AQI_Project_10")
 def main():
     print(f"=== AQI Daily Update: {datetime.now().strftime('%Y-%m-%d %H:%M')} ===\n")
     
+    # Debug: Check if running in GitHub Actions
+    if os.getenv("GITHUB_ACTIONS"):
+        print(" Running in GitHub Actions environment")
+        print(f"   WAQI_API_TOKEN: {'SET' if os.getenv('WAQI_API_TOKEN') else 'NOT SET (using fallback)'}")
+        print(f"   STATION_ID: {'SET' if os.getenv('STATION_ID') else 'NOT SET (using fallback)'}")
+        print(f"   HOPSWORKS_API_KEY: {'SET' if os.getenv('HOPSWORKS_API_KEY') else 'NOT SET (using fallback)'}")
+        print(f"   HOPSWORKS_PROJECT: {'SET' if os.getenv('HOPSWORKS_PROJECT') else 'NOT SET (using fallback)'}")
+    else:
+        print("💻 Running locally")
+    
+    print(f"\nUsing Station ID: {STATION_ID}")
+    print(f"Using Hopsworks Project: {HOPSWORKS_PROJECT}\n")
+    
     df = fetch_daily_data(WAQI_API_TOKEN, STATION_ID)
     
     if df is not None:
-        print(f"Collected: 1 sample with {len(df.columns)} features")
+        print(f"✓ Collected: 1 sample with {len(df.columns)} features")
+        
+        # Show timestamp to verify uniqueness
+        if 'timestamp' in df.columns:
+            print(f"   Timestamp: {df['timestamp'].iloc[0]}")
         
         success = store_features(
             df=df,
@@ -28,12 +45,15 @@ def main():
         )
         
         if success:
-            print("✓ Daily update completed")
+            print("✓ Daily update completed successfully")
         else:
-            print("✗ Daily update failed")
+            print("✗ Daily update failed - data not inserted")
             df.to_csv(f"backup_daily_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", index=False)
+            print(f"   Backup saved locally")
+            exit(1)  # Exit with error code
     else:
-        print("✗ No data collected")
+        print("✗ No data collected from API")
+        exit(1)  # Exit with error code
 
 
 if __name__ == "__main__":
