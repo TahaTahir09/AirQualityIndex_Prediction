@@ -2,6 +2,7 @@ requests
 pandas
 hopsworks>=4.2.0,<4.3.0  # Match backend version 4.2.2
 pyarrow>=10.0.0  # Required by Hopsworks
+confluent-kafka>=2.0.0  # Required by Hopsworks for Kafka integration
 python-dotenv
 scikit-learn
 joblib
