@@ -4,3 +4,4 @@ hopsworks
 python-dotenv
 scikit-learn
 joblib
+schedule  # For automated data collection scheduler

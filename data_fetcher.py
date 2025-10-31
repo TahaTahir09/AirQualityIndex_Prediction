@@ -67,7 +67,7 @@ class DataProcessor:
     @staticmethod
     def handle_nulls(df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        pd.set_option('future.no_silent_downcasting', True)
+        
         # Data quality
         if 'aqi' in df.columns:
             df['data_quality'] = 'valid'
@@ -84,7 +84,7 @@ class DataProcessor:
                 if df[pollutant].notna().any():
                     df[pollutant] = df[pollutant].fillna(df[pollutant].median())
                 else:
-                    df[pollutant] = df[pollutant].fillna(0).infer_objects(copy=False)
+                    df[pollutant] = df[pollutant].fillna(0)
             else:
                 df[pollutant] = 0
                 df[f'{pollutant}_imputed'] = 1
@@ -99,7 +99,7 @@ class DataProcessor:
         for weather_param, default_val in weather_defaults.items():
             if weather_param in df.columns:
                 df[f'{weather_param}_imputed'] = df[weather_param].isna().astype(int)
-                df[weather_param] = df[weather_param].fillna(default_val).infer_objects(copy=False)
+                df[weather_param] = df[weather_param].fillna(default_val)
             else:
                 df[weather_param] = default_val
                 df[f'{weather_param}_imputed'] = 1
@@ -233,8 +233,10 @@ class HistoricalDataCollector:
                 df_features = self.processor.create_features(df_cleaned)
                 return df_features
             return None
-        except Exception:
-            print("Error collecting sample")
+        except Exception as e:
+            print(f"Error collecting sample: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
 
