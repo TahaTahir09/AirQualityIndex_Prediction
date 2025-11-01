@@ -10,3 +10,4 @@ venv/
 .env
 config_local.py
 backup_*.csv
+model_artifacts/
