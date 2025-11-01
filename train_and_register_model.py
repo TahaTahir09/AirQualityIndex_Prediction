@@ -2,22 +2,41 @@ import pandas as pd
 import numpy as np
 from feature_store import read_features
 import hopsworks
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge, LinearRegression
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import joblib
 import os
+import json
+from datetime import datetime
 from config import COLLECTION_INTERVAL_HOURS, PREDICTION_HORIZON_DAYS
 
-# Optional: Uncomment if you want to try deep learning
-# import tensorflow as tf
+# Advanced ML
+import xgboost as xgb
+
+# Deep Learning
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Conv1D, MaxPooling1D, Flatten, BatchNormalization
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.optimizers import Adam
+
+# Hyperparameter Tuning
+import optuna
+from optuna.integration import TFKerasPruningCallback
 
 # Import MIN_TRAINING_ROWS if available
 try:
     from config import MIN_TRAINING_ROWS
 except ImportError:
     MIN_TRAINING_ROWS = 20
+
+# Set random seeds
+np.random.seed(42)
+tf.random.set_seed(42)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 WAQI_API_TOKEN = os.getenv("WAQI_API_TOKEN", "088661c637816f9f1463ca3e44d37da6d739d021")
 STATION_ID = os.getenv("STATION_ID", "A401143")
@@ -185,7 +204,14 @@ def evaluate(y_true, y_pred):
 
 def train_and_evaluate(X, y, horizon_days):
     """
-    Train and evaluate multiple regression models.
+    Train and evaluate 5 advanced regression models with hyperparameter tuning.
+    
+    Models:
+    1. Linear Regression (Baseline)
+    2. Random Forest (Optimized)
+    3. XGBoost (Best for tabular data)
+    4. LSTM (Deep Learning for time series) 
+    5. 1D CNN (Advanced deep learning)
     
     Args:
         X: Feature matrix
@@ -197,70 +223,329 @@ def train_and_evaluate(X, y, horizon_days):
         best_model_name: Name of the best model
         results: Dictionary of all model performances
     """
+    print("\n" + "="*80)
+    print("TRAINING ADVANCED MODELS")
+    print("="*80)
+    
     # Handle very small datasets
     if len(X) < 20:
-        test_size = 0.15  # Use smaller test set
-        print(f"ℹ️  Using smaller test set (15%) due to limited data")
+        test_size = 0.15
+        print("ℹ️  Using smaller test set (15%) due to limited data")
     else:
         test_size = 0.2
     
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42, shuffle=False)
+    
+    # Scale for deep learning models
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    
+    # For sequential models, reshape to 3D
+    sequence_length = min(24, len(X_train) // 4)  # Adaptive sequence length
+    X_train_seq, y_train_seq = create_sequences(X_train_scaled, y_train.values, sequence_length)
+    X_test_seq, y_test_seq = create_sequences(X_test_scaled, y_test.values, sequence_length)
+    
     results = {}
-
-    print(f"\nTraining models on {len(X_train)} samples, testing on {len(X_test)} samples...")
-
-    # Random Forest (supports multioutput, works well with small datasets)
-    rf = RandomForestRegressor(
-        n_estimators=50,  # Reduced for small datasets
-        max_depth=5,  # Prevent overfitting on small datasets
-        min_samples_split=2,
-        min_samples_leaf=1,
-        random_state=42
-    )
-    rf.fit(X_train, y_train)
-    y_pred_rf = rf.predict(X_test)
-    results['RandomForest'] = evaluate(y_test, y_pred_rf)
-
-    # Ridge Regression (multioutput, good for small datasets with regularization)
-    ridge = Ridge(alpha=1.0)
-    ridge.fit(X_train, y_train)
-    y_pred_ridge = ridge.predict(X_test)
-    results['Ridge'] = evaluate(y_test, y_pred_ridge)
-
-    # Linear Regression (simple baseline)
+    models = {}
+    
+    optimize_hp = len(X_train) > 500  # Enable hyperparameter tuning for large datasets
+    
+    if optimize_hp:
+        print(f"✓ Large dataset ({len(X_train)} samples) - Hyperparameter tuning ENABLED")
+    else:
+        print(f"  Dataset size: {len(X_train)} samples - Using default hyperparameters")
+    
+    print(f"  Train: {len(X_train)} samples | Test: {len(X_test)} samples")
+    print(f"  Sequential data: {len(X_train_seq)} train, {len(X_test_seq)} test\n")
+    
+    # ========================================================================
+    # MODEL 1: LINEAR REGRESSION (Baseline)
+    # ========================================================================
+    print("-" * 80)
+    print("MODEL 1: Linear Regression (Baseline)")
+    print("-" * 80)
+    
     lr = LinearRegression()
     lr.fit(X_train, y_train)
     y_pred_lr = lr.predict(X_test)
     results['LinearRegression'] = evaluate(y_test, y_pred_lr)
-
-    # # TensorFlow Example (uncomment to use)
-    # tf_model = tf.keras.Sequential([
-    #     tf.keras.layers.Dense(64, activation='relu', input_shape=(X_train.shape[1],)),
-    #     tf.keras.layers.Dense(1)
-    # ])
-    # tf_model.compile(optimizer='adam', loss='mse')
-    # tf_model.fit(X_train, y_train, epochs=30, batch_size=16, verbose=0)
-    # y_pred_tf = tf_model.predict(X_test).flatten()
-    # results['TensorFlow'] = evaluate(y_test, y_pred_tf)
-
-    # Select best model by average RMSE across outputs
-    best_model_name = min(results, key=lambda k: results[k][0])  # lowest mean RMSE
-    if best_model_name == 'RandomForest':
-        best_model = rf
-    elif best_model_name == 'Ridge':
-        best_model = ridge
-    elif best_model_name == 'LinearRegression':
-        best_model = lr
+    models['LinearRegression'] = lr
+    
+    print(f"  RMSE: {results['LinearRegression'][0]:.2f}")
+    print(f"  MAE:  {results['LinearRegression'][1]:.2f}")
+    print(f"  R²:   {results['LinearRegression'][2]:.4f}")
+    
+    # ========================================================================
+    # MODEL 2: RANDOM FOREST (Optimized)
+    # ========================================================================
+    print("\n" + "-" * 80)
+    print("MODEL 2: Random Forest Regressor")
+    print("-" * 80)
+    
+    if optimize_hp:
+        print("  Optimizing hyperparameters (Optuna)...")
+        best_params = optimize_random_forest(X_train, y_train, n_trials=15)
+        rf = RandomForestRegressor(**best_params, random_state=42, n_jobs=-1)
     else:
-        best_model = rf
-
-    print("\nModel Performance (mean across all outputs):")
-    for name, (rmse, mae, r2) in results.items():
-        marker = "★" if name == best_model_name else " "
-        print(f"{marker} {name}: mean RMSE={rmse:.3f}, mean MAE={mae:.3f}, mean R2={r2:.3f}")
-    print(f"\n✓ Best model: {best_model_name}")
-
+        rf = RandomForestRegressor(
+            n_estimators=100,
+            max_depth=10,
+            min_samples_split=5,
+            max_features='sqrt',
+            random_state=42,
+            n_jobs=-1
+        )
+    
+    rf.fit(X_train, y_train)
+    y_pred_rf = rf.predict(X_test)
+    results['RandomForest'] = evaluate(y_test, y_pred_rf)
+    models['RandomForest'] = rf
+    
+    print(f"  RMSE: {results['RandomForest'][0]:.2f}")
+    print(f"  MAE:  {results['RandomForest'][1]:.2f}")
+    print(f"  R²:   {results['RandomForest'][2]:.4f}")
+    
+    # ========================================================================
+    # MODEL 3: XGBOOST (Best for Tabular)
+    # ========================================================================
+    print("\n" + "-" * 80)
+    print("MODEL 3: XGBoost Regressor")
+    print("-" * 80)
+    
+    if optimize_hp:
+        print("  Optimizing hyperparameters (Optuna)...")
+        best_params = optimize_xgboost(X_train, y_train, n_trials=20)
+        xgb_model = xgb.XGBRegressor(**best_params, random_state=42, n_jobs=-1)
+    else:
+        xgb_model = xgb.XGBRegressor(
+            max_depth=6,
+            learning_rate=0.1,
+            n_estimators=100,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1
+        )
+    
+    xgb_model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
+    y_pred_xgb = xgb_model.predict(X_test)
+    results['XGBoost'] = evaluate(y_test, y_pred_xgb)
+    models['XGBoost'] = xgb_model
+    
+    print(f"  RMSE: {results['XGBoost'][0]:.2f}")
+    print(f"  MAE:  {results['XGBoost'][1]:.2f}")
+    print(f"  R²:   {results['XGBoost'][2]:.4f}")
+    
+    # ========================================================================
+    # MODEL 4: LSTM (Deep Learning)
+    # ========================================================================
+    if len(X_train_seq) > 50:  # Need enough sequential data
+        print("\n" + "-" * 80)
+        print("MODEL 4: LSTM (Deep Learning)")
+        print("-" * 80)
+        
+        lstm_model = build_lstm_model((X_train_seq.shape[1], X_train_seq.shape[2]), y_train.shape[1])
+        
+        early_stop = EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True, verbose=0)
+        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, min_lr=1e-6, verbose=0)
+        
+        print(f"  Training with {lstm_model.count_params():,} parameters...")
+        history = lstm_model.fit(
+            X_train_seq, y_train_seq,
+            validation_data=(X_test_seq, y_test_seq),
+            epochs=100,
+            batch_size=min(32, len(X_train_seq) // 4),
+            callbacks=[early_stop, reduce_lr],
+            verbose=0
+        )
+        
+        y_pred_lstm = lstm_model.predict(X_test_seq, verbose=0)
+        results['LSTM'] = evaluate(y_test_seq, y_pred_lstm)
+        models['LSTM'] = lstm_model
+        
+        print(f"  RMSE: {results['LSTM'][0]:.2f}")
+        print(f"  MAE:  {results['LSTM'][1]:.2f}")
+        print(f"  R²:   {results['LSTM'][2]:.4f}")
+        print(f"  Epochs: {len(history.history['loss'])}")
+    else:
+        print("\n⚠️  Skipping LSTM - insufficient sequential data (need >50 samples)")
+    
+    # ========================================================================
+    # MODEL 5: 1D CNN (Advanced Deep Learning)
+    # ========================================================================
+    if len(X_train_seq) > 50:
+        print("\n" + "-" * 80)
+        print("MODEL 5: 1D CNN (Advanced Deep Learning)")
+        print("-" * 80)
+        
+        cnn_model = build_cnn_model((X_train_seq.shape[1], X_train_seq.shape[2]), y_train.shape[1])
+        
+        early_stop = EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True, verbose=0)
+        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, min_lr=1e-6, verbose=0)
+        
+        print(f"  Training with {cnn_model.count_params():,} parameters...")
+        history = cnn_model.fit(
+            X_train_seq, y_train_seq,
+            validation_data=(X_test_seq, y_test_seq),
+            epochs=100,
+            batch_size=min(32, len(X_train_seq) // 4),
+            callbacks=[early_stop, reduce_lr],
+            verbose=0
+        )
+        
+        y_pred_cnn = cnn_model.predict(X_test_seq, verbose=0)
+        results['CNN_1D'] = evaluate(y_test_seq, y_pred_cnn)
+        models['CNN_1D'] = cnn_model
+        
+        print(f"  RMSE: {results['CNN_1D'][0]:.2f}")
+        print(f"  MAE:  {results['CNN_1D'][1]:.2f}")
+        print(f"  R²:   {results['CNN_1D'][2]:.4f}")
+        print(f"  Epochs: {len(history.history['loss'])}")
+    else:
+        print("\n⚠️  Skipping 1D CNN - insufficient sequential data (need >50 samples)")
+    
+    # ========================================================================
+    # MODEL COMPARISON
+    # ========================================================================
+    print("\n" + "="*80)
+    print("MODEL COMPARISON (sorted by RMSE)")
+    print("="*80)
+    
+    sorted_results = sorted(results.items(), key=lambda x: x[0])
+    for name, (rmse, mae, r2) in sorted_results:
+        print(f"  {name:20s} | RMSE: {rmse:6.2f} | MAE: {mae:6.2f} | R²: {r2:7.4f}")
+    
+    # Select best model
+    best_model_name = min(results, key=lambda k: results[k][0])
+    best_model = models[best_model_name]
+    
+    print("\n" + "="*80)
+    print(f"🏆 BEST MODEL: {best_model_name}")
+    print(f"   RMSE: {results[best_model_name][0]:.2f}")
+    print(f"   MAE:  {results[best_model_name][1]:.2f}")
+    print(f"   R²:   {results[best_model_name][2]:.4f}")
+    print("="*80)
+    
+    # Save all models
+    save_all_models(models, scaler)
+    
     return best_model, best_model_name, results
+
+
+# Helper functions for advanced models
+
+def create_sequences(X, y, sequence_length):
+    """Create sequences for LSTM/CNN from tabular data"""
+    X_seq, y_seq = [], []
+    for i in range(sequence_length, len(X)):
+        X_seq.append(X[i-sequence_length:i])
+        y_seq.append(y[i])
+    return np.array(X_seq), np.array(y_seq)
+
+
+def optimize_random_forest(X, y, n_trials=15):
+    """Optuna optimization for Random Forest"""
+    def objective(trial):
+        params = {
+            'n_estimators': trial.suggest_int('n_estimators', 50, 200),
+            'max_depth': trial.suggest_int('max_depth', 5, 20),
+            'min_samples_split': trial.suggest_int('min_samples_split', 2, 15),
+            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 8),
+            'max_features': trial.suggest_categorical('max_features', ['sqrt', 'log2']),
+            'random_state': 42,
+            'n_jobs': -1
+        }
+        model = RandomForestRegressor(**params)
+        model.fit(X, y)
+        y_pred = model.predict(X)
+        return np.sqrt(mean_squared_error(y, y_pred))
+    
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    return study.best_params
+
+
+def optimize_xgboost(X, y, n_trials=20):
+    """Optuna optimization for XGBoost"""
+    def objective(trial):
+        params = {
+            'max_depth': trial.suggest_int('max_depth', 3, 12),
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
+            'n_estimators': trial.suggest_int('n_estimators', 50, 200),
+            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+            'gamma': trial.suggest_float('gamma', 0, 3),
+            'random_state': 42,
+            'n_jobs': -1
+        }
+        model = xgb.XGBRegressor(**params)
+        model.fit(X, y, verbose=False)
+        y_pred = model.predict(X)
+        return np.sqrt(mean_squared_error(y, y_pred))
+    
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    return study.best_params
+
+
+def build_lstm_model(input_shape, output_dim):
+    """Build LSTM model"""
+    model = Sequential([
+        LSTM(64, return_sequences=True, input_shape=input_shape),
+        Dropout(0.2),
+        BatchNormalization(),
+        LSTM(32, return_sequences=False),
+        Dropout(0.2),
+        BatchNormalization(),
+        Dense(32, activation='relu'),
+        Dropout(0.1),
+        Dense(output_dim)
+    ])
+    model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mae'])
+    return model
+
+
+def build_cnn_model(input_shape, output_dim):
+    """Build 1D CNN model"""
+    model = Sequential([
+        Conv1D(64, kernel_size=3, activation='relu', input_shape=input_shape),
+        BatchNormalization(),
+        MaxPooling1D(pool_size=2),
+        Dropout(0.2),
+        Conv1D(32, kernel_size=3, activation='relu'),
+        BatchNormalization(),
+        MaxPooling1D(pool_size=2),
+        Dropout(0.2),
+        Flatten(),
+        Dense(64, activation='relu'),
+        Dropout(0.2),
+        Dense(32, activation='relu'),
+        Dense(output_dim)
+    ])
+    model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mae'])
+    return model
+
+
+def save_all_models(models, scaler):
+    """Save all trained models"""
+    model_dir = "model_artifacts"
+    os.makedirs(model_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    for name, model in models.items():
+        if 'LSTM' in name or 'CNN' in name:
+            path = os.path.join(model_dir, f"{name}_{timestamp}.keras")
+            model.save(path)
+        else:
+            path = os.path.join(model_dir, f"{name}_{timestamp}.pkl")
+            joblib.dump(model, path)
+        print(f"  ✓ Saved {name} to {path}")
+    
+    # Save scaler
+    scaler_path = os.path.join(model_dir, f"scaler_{timestamp}.pkl")
+    joblib.dump(scaler, scaler_path)
+    print(f"  ✓ Saved scaler to {scaler_path}")
 
 
 def register_model(model, model_name, metrics, horizon_days):

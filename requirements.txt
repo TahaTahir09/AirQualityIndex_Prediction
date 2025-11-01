@@ -7,3 +7,24 @@ python-dotenv
 scikit-learn
 joblib
 schedule  # For automated data collection scheduler
+
+# Advanced ML Models
+xgboost>=2.0.0  # Gradient Boosting for tabular data
+lightgbm>=4.0.0  # Alternative fast gradient boosting
+catboost>=1.2.0  # Categorical boosting (optional)
+
+# Deep Learning
+tensorflow>=2.15.0  # For LSTM and 1D CNN models
+keras>=3.0.0  # High-level neural network API
+
+# Hyperparameter Tuning
+optuna>=3.0.0  # Advanced hyperparameter optimization
+scikit-optimize>=0.9.0  # Bayesian optimization (alternative)
+
+# Visualization & Analysis
+matplotlib>=3.5.0
+seaborn>=0.12.0
+scipy>=1.10.0
+
+# Model Interpretability
+shap>=0.44.0  # SHAP values for model explanation
