@@ -11,7 +11,7 @@ FEATURE_GROUP_VERSION = 1
  
 # How many days ahead to predict (integer)
 # Set to 1 for small datasets (< 100 rows), can increase with more data
-PREDICTION_HORIZON_DAYS = 1
+PREDICTION_HORIZON_DAYS = 3
 
 # Minimum rows required for training (will auto-adjust horizon if needed)
 MIN_TRAINING_ROWS = 20
