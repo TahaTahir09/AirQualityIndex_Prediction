@@ -8,6 +8,9 @@ scikit-learn
 joblib
 schedule  # For automated data collection scheduler
 
+Flask>=3.0.0
+flask-cors>=4.0.0
+
 # Advanced ML Models
 xgboost>=2.0.0  # Gradient Boosting for tabular data
 lightgbm>=4.0.0  # Alternative fast gradient boosting

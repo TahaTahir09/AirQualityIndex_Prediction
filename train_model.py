@@ -13,7 +13,6 @@ from scipy import stats
 import joblib
 import os
 import json
-import argparse
 from datetime import datetime
 from config import COLLECTION_INTERVAL_HOURS, PREDICTION_HORIZON_DAYS
 import optuna
@@ -361,40 +360,58 @@ def save_models(models, selector, selected_features, scaler, best_model_name):
         print(f"    Scaler saved")
     print(f"    All models saved to {model_dir}/")
 def register_to_hopsworks(model, model_name, metrics, prediction_mode, horizon=1):
-    print("\n Registering model to Hopsworks...")
+    print(f"\n Registering {model_name} to Hopsworks Model Registry...")
     try:
         project = hopsworks.login(api_key_value=HOPSWORKS_API_KEY, project=HOPSWORKS_PROJECT)
         mr = project.get_model_registry()
-        model_dir = "model_artifacts"
-        os.makedirs(model_dir, exist_ok=True)
-        model_path = os.path.join(model_dir, f"{model_name}_for_registry.pkl")
+        
+        # Create a temp directory for this specific model
+        temp_model_dir = f"temp_model_{model_name}"
+        os.makedirs(temp_model_dir, exist_ok=True)
+        
+        # Save the model file
         if 'LSTM' in model_name or 'CNN' in model_name:
-            keras_path = os.path.join(model_dir, f"{model_name}_for_registry.keras")
-            model.save(keras_path)
-            joblib.dump({'model_path': keras_path, 'type': 'keras'}, model_path)
+            model_file = os.path.join(temp_model_dir, f"{model_name}.keras")
+            model.save(model_file)
         else:
-            joblib.dump(model, model_path)
+            model_file = os.path.join(temp_model_dir, f"{model_name}.pkl")
+            joblib.dump(model, model_file)
+        
         if prediction_mode == 'single':
             description = f"{model_name} for single-step ({horizon}h ahead) AQI prediction with advanced feature engineering"
         else:
             description = f"{model_name} for multi-step ({horizon} days ahead) AQI prediction"
+        
+        # Create model in registry - only numeric metrics allowed
         model_obj = mr.python.create_model(
             name=f"aqi_{model_name.lower()}",
             metrics={
                 "rmse": float(metrics['rmse']),
                 "mae": float(metrics['mae']),
                 "r2": float(metrics['r2']),
-                "prediction_mode": prediction_mode,
-                "horizon": horizon
+                "horizon": int(horizon)
             },
-            description=description
+            description=f"{description} | Mode: {prediction_mode}"
         )
-        model_obj.save(model_dir)
-        print(f"    Model registered: aqi_{model_name.lower()}")
-        print(f"   Mode: {prediction_mode}, Horizon: {horizon}")
+        
+        # Save/upload the model
+        model_obj.save(temp_model_dir)
+        
+        print(f"    ✓ Model registered: aqi_{model_name.lower()}")
+        print(f"      Metrics - RMSE: {metrics['rmse']:.2f}, MAE: {metrics['mae']:.2f}, R²: {metrics['r2']:.4f}")
+        
+        # Cleanup temp directory
+        import shutil
+        shutil.rmtree(temp_model_dir, ignore_errors=True)
+        
+        return True
+        
     except Exception as e:
-        print(f"     Registration failed: {e}")
-        print("   Model saved locally but not registered to Hopsworks")
+        print(f"    ✗ Registration failed for {model_name}: {e}")
+        import traceback
+        traceback.print_exc()
+        print("      Model saved locally but not registered to Hopsworks")
+        return False
 def make_predictions(models, df, selector, selected_features, prediction_days=3):
     from datetime import timedelta
     print("\n" + "="*80)
@@ -515,41 +532,56 @@ def main(args):
     save_models(models_trad, selector, selected_features, scaler, best_model_name)
     predictions = make_predictions(models_trad, df, selector, selected_features, prediction_days=3)
     json_output = export_results_to_json(results_trad, predictions)
+    
+    # Register the BEST model to Hopsworks
     if args.register:
-        register_to_hopsworks(
+        print("\n" + "="*80)
+        print(f"REGISTERING BEST MODEL ({best_model_name}) TO HOPSWORKS")
+        print("="*80)
+        
+        success = register_to_hopsworks(
             models_trad[best_model_name],
             best_model_name,
             best_metrics,
             prediction_mode,
             horizon_value
         )
+        
+        if success:
+            print("\n" + "="*80)
+            print(f"✓ Best model '{best_model_name}' successfully registered!")
+            print("="*80)
+        else:
+            print("\n" + "="*80)
+            print(f"✗ Failed to register '{best_model_name}'")
+            print("="*80)
+    
     print("\n" + "="*80)
     print(" TRAINING COMPLETE!")
     print("="*80)
-    print(f"\n Results saved to: model_results.json")
-    print(f" Models saved to: model_artifacts/")
+    print("\n Results saved to: model_results.json")
+    print(" Models saved to: model_artifacts/")
+    if args.register and success:
+        print(f" Best model '{best_model_name}' registered to Hopsworks ✓")
+    
     return models_trad, results_trad, json_output
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Train AQI prediction models')
-    parser.add_argument('--mode', type=str, default='single', choices=['single', 'multi'],
-                       help='Prediction mode: single-step or multi-step')
-    parser.add_argument('--horizon', type=int, default=1,
-                       help='Prediction horizon (hours for single, days for multi)')
-    parser.add_argument('--feature-engineering', action='store_true', default=True,
-                       help='Use advanced feature engineering')
-    parser.add_argument('--no-feature-engineering', dest='feature_engineering', action='store_false',
-                       help='Disable feature engineering')
-    parser.add_argument('--deep-learning', action='store_true', default=True,
-                       help='Include LSTM and CNN models')
-    parser.add_argument('--optimize', action='store_true', default=True,
-                       help='Use Optuna for hyperparameter optimization')
-    parser.add_argument('--no-optimize', dest='optimize', action='store_false',
-                       help='Disable hyperparameter optimization')
-    parser.add_argument('--register', action='store_true', default=False,
-                       help='Register best model to Hopsworks')
-    parser.add_argument('--target-r2', type=float, default=0.5,
-                       help='Target R² score')
-    args = parser.parse_args()
+    # Run with sensible defaults and no CLI flags - do all tasks by default
+    class Args:
+        pass
+
+    args = Args()
+    # Defaults: single-step prediction, 1-hour horizon, enable feature engineering,
+    # enable deep learning models, enable optimization, always register to Hopsworks
+    args.mode = 'single'
+    args.horizon = 1
+    args.feature_engineering = True
+    args.deep_learning = True
+    args.optimize = True
+    args.register = True
+    args.target_r2 = 0.5
+
     models, results, json_output = main(args)
+    # restore stdout and print final JSON output for frontend consumption
     sys.stdout = original_stdout
     print(json.dumps(json_output, indent=2))
