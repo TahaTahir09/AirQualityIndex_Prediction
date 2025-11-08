@@ -2,6 +2,8 @@
 nixPkgs = [
     "python310",
     "python310Packages.pip",
+    "python310Packages.wheel",
+    "python310Packages.setuptools",
     "gcc",
     "gnumake",
     "libffi",
