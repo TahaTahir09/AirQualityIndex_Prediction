@@ -22,9 +22,11 @@ class AQIPredictor:
             
             if data['status'] != 'ok':
                 print(f" API Error: {data}")
-                return None
+                raise Exception(f"WAQI API Error: {data.get('data', 'Unknown error')}")
             
             api_data = data['data']
+            if not api_data:
+                raise Exception("No data received from WAQI API")
             
             # Extract current AQI and pollutants
             current_data = {
@@ -98,6 +100,7 @@ class AQIPredictor:
         try:
             if not os.path.exists('model_artifacts'):
                 print(" No model_artifacts directory found")
+                raise Exception("No model_artifacts directory found. Please ensure models are uploaded.")
                 return False
             
             model_files = [f for f in os.listdir('model_artifacts') 
