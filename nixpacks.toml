@@ -3,15 +3,18 @@ nixPkgs = [
     "python310",
     "python310Packages.pip",
     "gcc",
-    "gcc-wrapper",
+    "gnumake",
     "libffi",
-    "openssl"
+    "openssl",
+    "zlib",
+    "stdenv.cc"
 ]
 
 [phases.install]
 cmds = [
     "python -m venv /opt/venv",
     ". /opt/venv/bin/activate",
+    "pip install --upgrade pip setuptools wheel",
     "pip install --no-cache-dir -r requirements_backend.txt"
 ]
 
