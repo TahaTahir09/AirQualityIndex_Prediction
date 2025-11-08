@@ -1,8 +1,8 @@
 # Core Web Framework
-Flask==2.2.2
-Werkzeug==2.2.2
+Flask==2.0.3
+Werkzeug==2.0.3
 Jinja2==3.0.3
-MarkupSafe>=2.1.1
+MarkupSafe==2.0.1
 flask-cors==3.0.10
 gunicorn==20.1.0
 
@@ -19,12 +19,17 @@ python-dotenv==1.0.0
 
 # Hopsworks Integration
 hopsworks==3.4.3
+hsfs==3.4.3
 
 # Dependencies
 python-dateutil==2.8.2
 typing-extensions==4.5.0
 PyYAML==6.0.1
 setuptools>=65.5.1
+
+# Additional Dependencies
+itsdangerous==2.0.1
+click==8.0.4
 
 # JSON Processing
 jsonschema==4.19.1
