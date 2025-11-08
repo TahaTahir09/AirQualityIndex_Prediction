@@ -11,3 +11,6 @@ venv/
 config_local.py
 backup_*.csv
 model_artifacts/
+
+# Streamlit secrets
+.streamlit/secrets.toml

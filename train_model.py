@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from feature_store import read_features
 import hopsworks
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, TimeSeriesSplit, cross_val_score
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
@@ -169,22 +169,78 @@ def build_cnn_model(input_shape, output_dim):
     ])
     model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mae'])
     return model
+
+def perform_cross_validation(model, X, y, cv_folds=5, model_name='Model'):
+    """
+    Perform cross-validation on a model using TimeSeriesSplit.
+    Returns cross-validation scores and statistics.
+    """
+    print(f"\n  Cross-Validation: Using TimeSeriesSplit with {cv_folds} folds")
+    
+    # Use TimeSeriesSplit for time-series data (respects temporal ordering)
+    tscv = TimeSeriesSplit(n_splits=cv_folds)
+    
+    # Perform cross-validation for multiple metrics
+    cv_r2_scores = cross_val_score(model, X, y, cv=tscv, scoring='r2', n_jobs=-1)
+    cv_neg_mse_scores = cross_val_score(model, X, y, cv=tscv, scoring='neg_mean_squared_error', n_jobs=-1)
+    cv_neg_mae_scores = cross_val_score(model, X, y, cv=tscv, scoring='neg_mean_absolute_error', n_jobs=-1)
+    
+    # Convert negative scores to positive
+    cv_rmse_scores = np.sqrt(-cv_neg_mse_scores)
+    cv_mae_scores = -cv_neg_mae_scores
+    
+    # Calculate statistics
+    cv_stats = {
+        'r2_mean': cv_r2_scores.mean(),
+        'r2_std': cv_r2_scores.std(),
+        'rmse_mean': cv_rmse_scores.mean(),
+        'rmse_std': cv_rmse_scores.std(),
+        'mae_mean': cv_mae_scores.mean(),
+        'mae_std': cv_mae_scores.std(),
+        'r2_scores': cv_r2_scores.tolist(),
+        'rmse_scores': cv_rmse_scores.tolist(),
+        'mae_scores': cv_mae_scores.tolist()
+    }
+    
+    print(f"  CV Results (mean ± std):")
+    print(f"    R² Score: {cv_stats['r2_mean']:.4f} ± {cv_stats['r2_std']:.4f}")
+    print(f"    RMSE:     {cv_stats['rmse_mean']:.2f} ± {cv_stats['rmse_std']:.2f}")
+    print(f"    MAE:      {cv_stats['mae_mean']:.2f} ± {cv_stats['mae_std']:.2f}")
+    
+    return cv_stats
+
 def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
     print("\n" + "="*80)
     print("STEP 2: TRAINING TRADITIONAL ML MODELS")
     print("="*80)
     models = {}
     results = {}
+    
+    # MODEL 1: Linear Regression (Baseline)
     print("\n MODEL 1: Linear Regression (Baseline)")
     lr = LinearRegression()
+    
+    # Perform cross-validation
+    cv_stats_lr = perform_cross_validation(lr, X_train, y_train, cv_folds=5, model_name='LinearRegression')
+    
+    # Train on full training set and evaluate on test set
     lr.fit(X_train, y_train)
     y_pred = lr.predict(X_test)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
-    print(f"   RMSE: {rmse:.2f} | MAE: {mae:.2f} | R²: {r2:.4f}")
+    print(f"  Test Set Results:")
+    print(f"    RMSE: {rmse:.2f} | MAE: {mae:.2f} | R²: {r2:.4f}")
+    
     models['LinearRegression'] = lr
-    results['LinearRegression'] = {'rmse': rmse, 'mae': mae, 'r2': r2}
+    results['LinearRegression'] = {
+        'rmse': rmse, 'mae': mae, 'r2': r2,
+        'cv_r2_mean': cv_stats_lr['r2_mean'],
+        'cv_r2_std': cv_stats_lr['r2_std'],
+        'cv_rmse_mean': cv_stats_lr['rmse_mean'],
+        'cv_rmse_std': cv_stats_lr['rmse_std']
+    }
+    
     print("\n MODEL 2: Random Forest")
     if optimize and len(X_train) > 500:
         print("   Optimizing with Optuna (15 trials)...")
@@ -208,15 +264,30 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
         print(f"   Best params: {study.best_params}")
     else:
         rf = RandomForestRegressor(n_estimators=100, max_depth=15, random_state=42, n_jobs=-1)
+    
+    # Perform cross-validation
+    cv_stats_rf = perform_cross_validation(rf, X_train, y_train, cv_folds=5, model_name='RandomForest')
+    
+    # Train and evaluate
     rf.fit(X_train, y_train)
     y_pred = rf.predict(X_test)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
-    print(f"   RMSE: {rmse:.2f} | MAE: {mae:.2f} | R²: {r2:.4f}")
+    print(f"  Test Set Results:")
+    print(f"    RMSE: {rmse:.2f} | MAE: {mae:.2f} | R²: {r2:.4f}")
+    
     models['RandomForest'] = rf
-    results['RandomForest'] = {'rmse': rmse, 'mae': mae, 'r2': r2}
-    print("\n MODEL 3: XGBoost")
+    results['RandomForest'] = {
+        'rmse': rmse, 'mae': mae, 'r2': r2,
+        'cv_r2_mean': cv_stats_rf['r2_mean'],
+        'cv_r2_std': cv_stats_rf['r2_std'],
+        'cv_rmse_mean': cv_stats_rf['rmse_mean'],
+        'cv_rmse_std': cv_stats_rf['rmse_std']
+    }
+    
+    # MODEL 3: XGBoost (with L1/L2 Regularization)
+    print("\n MODEL 3: XGBoost (with L1/L2 Regularization)")
     if optimize and len(X_train) > 500:
         print("   Optimizing with Optuna (20 trials)...")
         def xgb_objective(trial):
@@ -227,6 +298,8 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
                 'subsample': trial.suggest_float('subsample', 0.6, 1.0),
                 'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
                 'gamma': trial.suggest_float('gamma', 0, 5),
+                'reg_alpha': trial.suggest_float('reg_alpha', 0, 10),  # L1 regularization
+                'reg_lambda': trial.suggest_float('reg_lambda', 0, 10),  # L2 regularization
                 'random_state': 42,
                 'n_jobs': -1
             }
@@ -239,15 +312,37 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
         xgb_model = xgb.XGBRegressor(**study.best_params, random_state=42, n_jobs=-1)
         print(f"   Best params: {study.best_params}")
     else:
-        xgb_model = xgb.XGBRegressor(max_depth=6, learning_rate=0.1, n_estimators=100, random_state=42, n_jobs=-1)
+        xgb_model = xgb.XGBRegressor(
+            max_depth=6, 
+            learning_rate=0.1, 
+            n_estimators=100,
+            reg_alpha=1.0,  # L1 regularization
+            reg_lambda=1.0,  # L2 regularization
+            random_state=42, 
+            n_jobs=-1
+        )
+    
+    # Perform cross-validation
+    cv_stats_xgb = perform_cross_validation(xgb_model, X_train, y_train, cv_folds=5, model_name='XGBoost')
+    
+    # Train and evaluate
     xgb_model.fit(X_train, y_train)
     y_pred = xgb_model.predict(X_test)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
-    print(f"   RMSE: {rmse:.2f} | MAE: {mae:.2f} | R²: {r2:.4f}")
+    print(f"  Test Set Results:")
+    print(f"    RMSE: {rmse:.2f} | MAE: {mae:.2f} | R²: {r2:.4f}")
+    
     models['XGBoost'] = xgb_model
-    results['XGBoost'] = {'rmse': rmse, 'mae': mae, 'r2': r2}
+    results['XGBoost'] = {
+        'rmse': rmse, 'mae': mae, 'r2': r2,
+        'cv_r2_mean': cv_stats_xgb['r2_mean'],
+        'cv_r2_std': cv_stats_xgb['r2_std'],
+        'cv_rmse_mean': cv_stats_xgb['rmse_mean'],
+        'cv_rmse_std': cv_stats_xgb['rmse_std']
+    }
+    
     return models, results
 def train_deep_learning_models(X_train, y_train, X_test, y_test, scaler=None):
     print("\n" + "="*80)
@@ -463,22 +558,34 @@ def get_aqi_category(aqi):
 def export_results_to_json(results, predictions, output_file="model_results.json"):
     print(f"\n Exporting results to {output_file}...")
     sorted_results = sorted(results.items(), key=lambda x: x[1]['r2'], reverse=True)
+    
+    model_comparison = []
+    for idx, (model_name, metrics) in enumerate(sorted_results):
+        model_data = {
+            "rank": idx + 1,
+            "model_name": model_name,
+            "rmse": float(metrics['rmse']),
+            "mae": float(metrics['mae']),
+            "r2_score": float(metrics['r2']),
+            "performance": "Excellent" if metrics['r2'] > 0.9 else "Good" if metrics['r2'] > 0.7 else "Fair"
+        }
+        
+        # Add cross-validation metrics if available
+        if 'cv_r2_mean' in metrics:
+            model_data['cv_r2_mean'] = float(metrics['cv_r2_mean'])
+            model_data['cv_r2_std'] = float(metrics['cv_r2_std'])
+            model_data['cv_rmse_mean'] = float(metrics['cv_rmse_mean'])
+            model_data['cv_rmse_std'] = float(metrics['cv_rmse_std'])
+            
+        model_comparison.append(model_data)
+    
     json_output = {
         "timestamp": datetime.now().isoformat(),
-        "model_comparison": [
-            {
-                "rank": idx + 1,
-                "model_name": model_name,
-                "rmse": float(metrics['rmse']),
-                "mae": float(metrics['mae']),
-                "r2_score": float(metrics['r2']),
-                "performance": "Excellent" if metrics['r2'] > 0.9 else "Good" if metrics['r2'] > 0.7 else "Fair"
-            }
-            for idx, (model_name, metrics) in enumerate(sorted_results)
-        ],
+        "model_comparison": model_comparison,
         "best_model": sorted_results[0][0],
         "predictions_next_3_days": predictions
     }
+    
     with open(output_file, 'w') as f:
         json.dump(json_output, f, indent=2)
     print(f"    Results exported successfully!")

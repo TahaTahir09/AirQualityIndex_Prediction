@@ -21,7 +21,7 @@ class AQIPredictor:
             data = response.json()
             
             if data['status'] != 'ok':
-                print(f"❌ API Error: {data}")
+                print(f" API Error: {data}")
                 return None
             
             api_data = data['data']
@@ -45,11 +45,11 @@ class AQIPredictor:
                 'dominentpol': api_data.get('dominentpol', 'unknown')
             }
             
-            print(f"✅ Fetched real-time data from API - AQI: {current_data['aqi']}, City: {current_data['city']}")
+            print(f" Fetched real-time data from API - AQI: {current_data['aqi']}, City: {current_data['city']}")
             return current_data
             
         except Exception as e:
-            print(f"❌ Error fetching from API: {e}")
+            print(f" Error fetching from API: {e}")
             return None
     
     def load_model_from_hopsworks(self):
@@ -80,24 +80,24 @@ class AQIPredictor:
                             model_path = os.path.join(model_dir, file)
                             self.model = joblib.load(model_path)
                             self.model_name = model_name.replace('aqi_', '').upper()
-                            print(f"✅ Model loaded from Hopsworks: {self.model_name}")
+                            print(f" Model loaded from Hopsworks: {self.model_name}")
                             return True
                 except Exception as e:
-                    print(f"   ⚠️  Could not load {model_name}: {e}")
+                    print(f"    Could not load {model_name}: {e}")
                     continue
             
-            print("⚠️  No models found in Hopsworks, trying local files...")
+            print("  No models found in Hopsworks, trying local files...")
             return self.load_model_locally()
             
         except Exception as e:
-            print(f"❌ Error connecting to Hopsworks: {e}")
+            print(f" Error connecting to Hopsworks: {e}")
             return self.load_model_locally()
     
     def load_model_locally(self):
         """Fallback: Load model from local model_artifacts/"""
         try:
             if not os.path.exists('model_artifacts'):
-                print("❌ No model_artifacts directory found")
+                print(" No model_artifacts directory found")
                 return False
             
             model_files = [f for f in os.listdir('model_artifacts') 
