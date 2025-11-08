@@ -410,8 +410,12 @@ if __name__ == '__main__':
     print("\n" + "="*80)
     print("🚀 Starting Flask server...")
     print("="*80)
-    print("\n📍 Dashboard: http://127.0.0.1:5000")
-    print("📍 Network:   http://0.0.0.0:5000")
+    
+    # Get port from environment variable (for Render deployment) or use 5000 for local
+    port = int(os.environ.get('PORT', 5000))
+    
+    print(f"\n📍 Dashboard: http://127.0.0.1:{port}")
+    print(f"📍 Network:   http://0.0.0.0:{port}")
     print("\n💡 Press CTRL+C to stop\n")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=False, host='0.0.0.0', port=port)
