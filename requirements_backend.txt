@@ -1,21 +1,30 @@
-requests
-pandas
-numpy
-python-dotenv
-scikit-learn
-joblib
-hopsworks>=4.2.0,<4.3.0
-pyarrow>=10.0.0  # Required by Hopsworks
-confluent-kafka>=2.0.0  # Required by Hopsworks
+requests>=2.31.0
+pandas>=2.0.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+scikit-learn>=1.3.0
+joblib>=1.3.0
 
+# Hopsworks and its dependencies
+hopsworks>=4.2.0,<4.3.0
+pyarrow>=10.0.0
+confluent-kafka>=2.0.0
+boto3>=1.28.0  # For Hopsworks model registry
+great-expectations>=0.17.0  # For Hopsworks data validation
+hsfs>=3.4.0  # Hopsworks Feature Store
+hops>=4.2.0  # Core Hopsworks library
+
+# Web Framework
 Flask>=3.0.0
 flask-cors>=4.0.0
 gunicorn>=21.0.0
 
-# Only keeping essential ML libraries
-tensorflow-cpu>=2.15.0  # Using CPU-only version
+# ML Libraries
+tensorflow-cpu>=2.15.0
 keras>=3.0.0
+xgboost>=2.0.0  # For model loading
 
-# Basic visualization
+# Utilities
 matplotlib>=3.5.0
 scipy>=1.10.0
+psutil>=5.9.0  # Required by Hopsworks
