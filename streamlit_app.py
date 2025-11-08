@@ -233,7 +233,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Flask API Configuration
-FLASK_API_URL = os.getenv("FLASK_API_URL", "http://localhost:5000")
+FLASK_API_URL = os.getenv("FLASK_API_URL", "https://web-production-d70e6.up.railway.app")
 
 # Helper Functions
 @st.cache_data(ttl=300)  # Cache for 5 minutes
