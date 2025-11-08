@@ -4,6 +4,9 @@ numpy
 python-dotenv
 scikit-learn
 joblib
+hopsworks>=4.2.0,<4.3.0
+pyarrow>=10.0.0  # Required by Hopsworks
+confluent-kafka>=2.0.0  # Required by Hopsworks
 
 Flask>=3.0.0
 flask-cors>=4.0.0
