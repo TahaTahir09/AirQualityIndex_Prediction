@@ -81,22 +81,41 @@ class AQIPredictor:
             
             for model_name in model_names:
                 try:
-                    # Get the model
-                    model = mr.get_model(model_name, version=1)
+                    # Get the latest version of the model (don't hardcode version)
+                    model = mr.get_model(model_name)
                     
                     # Download model to temporary directory
                     model_dir = model.download()
                     
-                    # Load the model file
-                    model_file = os.path.join(model_dir, f"{model_name}.pkl")
-                    if os.path.exists(model_file):
-                        with open(model_file, 'rb') as f:
-                            self.model = pickle.load(f)
-                        self.model_name = model_name.replace('aqi_', '').upper()
-                        st.success(f"✓ Loaded {self.model_name} model from Hopsworks Model Registry")
-                        return True
+                    # Try different possible file names in the downloaded directory
+                    possible_files = [
+                        os.path.join(model_dir, f"{model_name}.pkl"),
+                        os.path.join(model_dir, "model.pkl"),
+                        os.path.join(model_dir, f"{model_name.replace('aqi_', '')}.pkl"),
+                        os.path.join(model_dir, f"{model_name.replace('aqi_', '').title()}_best.pkl")
+                    ]
+                    
+                    # Also check all .pkl files in the directory
+                    if os.path.exists(model_dir):
+                        for file in os.listdir(model_dir):
+                            if file.endswith('.pkl') and 'scaler' not in file.lower() and 'selector' not in file.lower():
+                                possible_files.append(os.path.join(model_dir, file))
+                    
+                    # Try to load the first existing file
+                    for model_file in possible_files:
+                        if os.path.exists(model_file):
+                            try:
+                                with open(model_file, 'rb') as f:
+                                    self.model = pickle.load(f)
+                                self.model_name = model_name.replace('aqi_', '').upper()
+                                st.success(f"✓ Loaded {self.model_name} model (version {model.version}) from Hopsworks")
+                                return True
+                            except Exception as load_err:
+                                continue
+                    
                 except Exception as e:
                     # Try next model if this one fails
+                    st.warning(f"Could not load {model_name}: {str(e)[:100]}")
                     continue
             
             st.warning("⚠ Could not load any model from Hopsworks Model Registry")
