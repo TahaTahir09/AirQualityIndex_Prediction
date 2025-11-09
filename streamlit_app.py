@@ -895,10 +895,13 @@ elif "Model Analytics" in page:
         display_df = df[['r2', 'mae', 'rmse', 'rank', 'performance']].copy()
         display_df.columns = ['R² Score', 'MAE', 'RMSE', 'Rank', 'Performance']
         
+        # Round numeric columns for better display
+        display_df['R² Score'] = display_df['R² Score'].round(4)
+        display_df['MAE'] = display_df['MAE'].round(4)
+        display_df['RMSE'] = display_df['RMSE'].round(4)
+        
         st.dataframe(
-            display_df.style.background_gradient(cmap='RdYlGn', subset=['R² Score'])
-                            .background_gradient(cmap='RdYlGn_r', subset=['MAE', 'RMSE'])
-                            .format({'R² Score': '{:.4f}', 'MAE': '{:.4f}', 'RMSE': '{:.4f}'}),
+            display_df,
             use_container_width=True,
             height=400
         )
