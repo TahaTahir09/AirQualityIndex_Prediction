@@ -39,7 +39,8 @@ class HopsworksFeatureStore:
             return None
     def insert_data(self, feature_group, df: pd.DataFrame) -> bool:
         try:
-            feature_group.insert(df, write_options={"wait_for_job": True})
+            # Use offline writer to avoid Kafka dependency
+            feature_group.insert(df, write_options={"start_offline_materialization": False})
             print(f" Inserted {len(df)} records into feature store")
             return True
         except Exception as e:
