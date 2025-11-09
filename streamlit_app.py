@@ -276,6 +276,64 @@ class AQIPredictor:
             st.error("Model prediction failed. Please verify model integrity in Hopsworks.")
             return None
 
+    def save_predictions_to_hopsworks(self, predictions, model_name, current_data):
+        """Save predictions to Hopsworks Feature Store"""
+        try:
+            import hopsworks
+            
+            # Connect to Hopsworks
+            project = hopsworks.login(
+                api_key_value=HOPSWORKS_API_KEY,
+                project=HOPSWORKS_PROJECT
+            )
+            
+            # Get feature store
+            fs = project.get_feature_store()
+            
+            # Prepare predictions dataframe
+            pred_records = []
+            for pred in predictions:
+                pred_records.append({
+                    'prediction_timestamp': datetime.now().isoformat(),
+                    'prediction_date': pred['date'],
+                    'predicted_aqi': pred['aqi'],
+                    'aqi_category': pred['category']['level'],
+                    'model_name': model_name,
+                    'based_on_aqi': current_data['aqi'],
+                    'based_on_pm25': current_data.get('pm25', 0),
+                    'based_on_pm10': current_data.get('pm10', 0),
+                    'forecast_day': pred['day']
+                })
+            
+            predictions_df = pd.DataFrame(pred_records)
+            
+            # Get or create predictions feature group
+            try:
+                predictions_fg = fs.get_feature_group(name="aqi_predictions", version=1)
+                st.info("✓ Using existing predictions feature group")
+            except Exception:
+                # Create new feature group if doesn't exist
+                predictions_fg = fs.create_feature_group(
+                    name="aqi_predictions",
+                    version=1,
+                    description="AQI predictions for next 3 days",
+                    primary_key=['prediction_timestamp', 'prediction_date'],
+                    event_time='prediction_timestamp',
+                    online_enabled=False
+                )
+                st.info("✓ Created new predictions feature group")
+            
+            # Insert predictions
+            predictions_fg.insert(predictions_df)
+            st.success(f"✅ Saved {len(predictions)} predictions to Hopsworks Feature Store")
+            
+            return True
+            
+        except Exception as e:
+            st.warning(f"⚠ Failed to save predictions to Hopsworks: {str(e)[:150]}")
+            st.info("Predictions will still be displayed but not saved to Hopsworks")
+            return False
+
     def get_aqi_category(self, aqi):
         """Get AQI category with color and health information"""
         if aqi <= 50:
@@ -570,21 +628,38 @@ def fetch_forecast_data():
             st.error("⚠ Model not loaded. Please check the error messages above.")
             return None
         
-        # Fetch current data
+        st.info(f"🤖 Using best model: {predictor.model_name}")
+        
+        # Fetch current data from API
+        st.info("📡 Fetching current air quality data from WAQI API...")
         current_data = predictor.fetch_current_data_from_api()
         if not current_data:
             st.error("⚠ Failed to fetch current air quality data from API")
             return None
         
-        # Make predictions
+        st.success(f"✓ Current AQI: {current_data['aqi']}")
+        
+        # Make predictions using the model
+        st.info("🔮 Generating 3-day predictions...")
         predictions = predictor.make_simple_prediction(current_data)
         if not predictions:
             st.error("⚠ Failed to generate predictions. Check model compatibility.")
             return None
         
+        st.success(f"✓ Generated {len(predictions)} day predictions")
+        
+        # Save predictions to Hopsworks Feature Store
+        st.info("💾 Saving predictions to Hopsworks Feature Store...")
+        saved = predictor.save_predictions_to_hopsworks(
+            predictions, 
+            predictor.model_name, 
+            current_data
+        )
+        
         return {
             'model': predictor.model_name or 'ML Model',
             'predictions': predictions,
+            'saved_to_hopsworks': saved,
             'based_on': {
                 'current_aqi': current_data['aqi'],
                 'timestamp': current_data['timestamp']
@@ -1121,6 +1196,10 @@ elif "Forecast" in page:
         based_on = forecast_data.get('based_on', {})
         current_aqi = based_on.get('current_aqi', 'N/A')
         timestamp = based_on.get('timestamp', 'N/A')
+        saved_to_hopsworks = forecast_data.get('saved_to_hopsworks', False)
+        
+        # Hopsworks save status indicator
+        hopsworks_status = "✅ Saved" if saved_to_hopsworks else "⚠️ Not Saved"
         
         st.markdown(f"""
         <div style="
@@ -1142,6 +1221,10 @@ elif "Forecast" in page:
                 <div>
                     <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 5px;">Prediction Time</div>
                     <div style="font-size: 1.2rem; font-weight: 700;">{timestamp}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 5px;">Hopsworks Storage</div>
+                    <div style="font-size: 1.4rem; font-weight: 700;">{hopsworks_status}</div>
                 </div>
             </div>
         </div>
