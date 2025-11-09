@@ -67,6 +67,11 @@ class AQIPredictor:
         try:
             import hsfs
             
+            if not HOPSWORKS_API_KEY or not HOPSWORKS_PROJECT:
+                st.error("⚠ Hopsworks credentials not configured in secrets!")
+                st.error("Please add HOPSWORKS_API_KEY and HOPSWORKS_PROJECT to Streamlit Cloud secrets.")
+                return False
+            
             connection = hsfs.connection(
                 host="c.app.hopsworks.ai",
                 project=HOPSWORKS_PROJECT,
@@ -75,7 +80,7 @@ class AQIPredictor:
             
             mr = connection.get_model_registry()
             
-            model_names = ['aqi_xgboost', 'aqi_randomforest', 'aqi_linearregression']
+            model_names = ['aqi_linearregression', 'aqi_xgboost', 'aqi_randomforest']
             
             for model_name in model_names:
                 try:
@@ -88,49 +93,32 @@ class AQIPredictor:
                             with open(model_path, 'rb') as f:
                                 self.model = pickle.load(f)
                             self.model_name = model_name.replace('aqi_', '').upper()
-                            st.success(f"Loaded {self.model_name} model from Hopsworks")
+                            st.success(f"✓ Loaded {self.model_name} model from Hopsworks Model Registry")
                             return True
-                except Exception as e:
+                except Exception as model_error:
+                    st.warning(f"Could not load {model_name}: {str(model_error)[:100]}")
                     continue
             
-            st.warning("Could not load models from Hopsworks. Trying local models...")
-            return self.load_model_locally()
+            st.error("⚠ Failed to load any models from Hopsworks Model Registry")
+            st.error("Please check: 1) Model names in Hopsworks, 2) API key permissions, 3) Project name")
+            return False
             
         except Exception as e:
-            st.warning(f"Error connecting to Hopsworks: {e}. Trying local models...")
-            return self.load_model_locally()
-
-    def load_model_locally(self):
-        """Load model from local model_artifacts/"""
-        try:
-            if not os.path.exists('model_artifacts'):
-                st.error("No model_artifacts directory found and Hopsworks unavailable.")
-                return False
-            
-            model_files = [f for f in os.listdir('model_artifacts') 
-                          if f.endswith('.pkl')]
-            
-            if model_files:
-                model_file = sorted(model_files)[-1]
-                model_path = os.path.join('model_artifacts', model_file)
-                with open(model_path, 'rb') as f:
-                    self.model = pickle.load(f)
-                self.model_name = model_file.replace('_best.pkl', '').replace('.pkl', '').upper()
-                st.info(f"Loaded {self.model_name} model from local storage")
-                return True
-            else:
-                st.error("No trained models found locally.")
-                return False
-                
-        except Exception as e:
-            st.error(f"Could not load model: {e}")
+            st.error(f"⚠ Hopsworks connection failed: {str(e)[:200]}")
+            st.error("Cannot make predictions without model from Hopsworks.")
             return False
 
+    def load_model_locally(self):
+        """This method is deprecated - we only use Hopsworks models"""
+        st.error("⚠ Local model loading is disabled. Please configure Hopsworks credentials.")
+        return False
+
     def make_simple_prediction(self, current_data, days=3):
-        """Make predictions using trained model"""
+        """Make predictions using trained model from Hopsworks"""
         try:
             if self.model is None:
-                st.error("No model loaded. Please check Hopsworks connection or local models.")
+                st.error("⚠ No model loaded from Hopsworks Model Registry!")
+                st.error("Cannot generate predictions. Please check Hopsworks connection.")
                 return None
             
             expected_features = self.model.n_features_in_ if hasattr(self.model, 'n_features_in_') else 50
@@ -177,7 +165,8 @@ class AQIPredictor:
             return predictions
             
         except Exception as e:
-            st.error(f"Prediction error: {e}")
+            st.error(f"⚠ Prediction error: {str(e)}")
+            st.error("Model prediction failed. Please verify model integrity in Hopsworks.")
             return None
 
     def get_aqi_category(self, aqi):
