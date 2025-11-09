@@ -378,7 +378,7 @@ def get_aqi_category(aqi):
 
 def show_current_conditions(current_features):
     """Display current air quality conditions"""
-    st.markdown("<h2 style='text-align: center;'>📍 Current Air Quality Conditions</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'> Current Air Quality Conditions</h2>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Get current AQI
@@ -451,7 +451,7 @@ def show_current_conditions(current_features):
     st.markdown("<br><br>", unsafe_allow_html=True)
     
     # Detailed Pollutant Levels
-    st.markdown("<h3>🔬 Detailed Pollutant Analysis</h3>", unsafe_allow_html=True)
+    st.markdown("<h3> Detailed Pollutant Analysis</h3>", unsafe_allow_html=True)
     
     pollutant_cols = st.columns(4)
     pollutants = [
@@ -572,7 +572,7 @@ def show_forecast():
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%); 
                     padding: 20px; border-radius: 15px; border-left: 5px solid #0284c7; margin-top: 20px;">
-            <h4 style="color: #0c4a6e; margin: 0 0 10px 0;">📊 Prediction Details</h4>
+            <h4 style="color: #0c4a6e; margin: 0 0 10px 0;"> Prediction Details</h4>
             <p style="color: #075985; margin: 5px 0;"><strong>Model:</strong> {best_model}</p>
             <p style="color: #075985; margin: 5px 0;"><strong>Source:</strong> model_results.json (Local)</p>
             <p style="color: #075985; margin: 5px 0;"><strong>Generated:</strong> {timestamp}</p>
@@ -584,7 +584,7 @@ def show_forecast():
 
 def show_model_analytics():
     """Display model performance analytics"""
-    st.markdown("<h2 style='text-align: center;'>📊 Model Performance Analytics</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>Model Performance Analytics</h2>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Load model comparison from local results
@@ -778,7 +778,7 @@ def main():
     with st.sidebar:
         st.markdown("""
         <div style='text-align: center; padding: 1rem 0;'>
-            <h2 style='color: white; font-size: 1.8rem;'>🎯 Navigation</h2>
+            <h2 style='color: white; font-size: 1.8rem;'> Navigation</h2>
         </div>
         """, unsafe_allow_html=True)
         
@@ -791,7 +791,7 @@ def main():
         st.markdown("<hr style='border: 1px solid rgba(255,255,255,0.2); margin: 2rem 0;'>", unsafe_allow_html=True)
         
         # System Status
-        st.markdown("<h3 style='color: white;'>📡 System Status</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: white;'> System Status</h3>", unsafe_allow_html=True)
         
         # Check if model_results.json exists
         if os.path.exists("model_results.json"):
@@ -800,7 +800,7 @@ def main():
             
             st.markdown(f"""
             <div style='background: rgba(16, 185, 129, 0.2); padding: 1rem; border-radius: 10px; margin: 0.5rem 0;'>
-                <p style='margin: 0; color: #10b981; font-weight: 600;'>✅ System Online</p>
+                <p style='margin: 0; color: #10b981; font-weight: 600;'> System Online</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -814,7 +814,7 @@ def main():
         else:
             st.markdown("""
             <div style='background: rgba(239, 68, 68, 0.2); padding: 1rem; border-radius: 10px;'>
-                <p style='margin: 0; color: #ef4444; font-weight: 600;'>⚠️ No Model Results</p>
+                <p style='margin: 0; color: #ef4444; font-weight: 600;'> No Model Results</p>
                 <p style='margin: 0.5rem 0 0 0; color: white; font-size: 0.9rem;'>Run train_model.py first</p>
             </div>
             """, unsafe_allow_html=True)
@@ -831,14 +831,14 @@ def main():
             timestamp = current_features['timestamp'].iloc[0] if 'timestamp' in current_features.columns else 'N/A'
             st.markdown(f"""
             <div style='background: rgba(16, 185, 129, 0.2); padding: 1rem; border-radius: 10px;'>
-                <p style='margin: 0; color: #10b981; font-weight: 600;'>✅ Features Loaded</p>
+                <p style='margin: 0; color: #10b981; font-weight: 600;'> Features Loaded</p>
                 <p style='margin: 0.5rem 0 0 0; color: white; font-size: 0.9rem;'>Updated: {timestamp}</p>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown("""
             <div style='background: rgba(239, 68, 68, 0.2); padding: 1rem; border-radius: 10px;'>
-                <p style='margin: 0; color: #ef4444; font-weight: 600;'>❌ No Features</p>
+                <p style='margin: 0; color: #ef4444; font-weight: 600;'> No Features</p>
             </div>
             """, unsafe_allow_html=True)
             return
