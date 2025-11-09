@@ -63,22 +63,21 @@ class AQIPredictor:
             return None
 
     def load_model_from_hopsworks(self):
-        """Load the best model from Hopsworks Model Registry using hsfs"""
+        """Load the best model from Hopsworks Model Registry"""
         try:
-            import hsfs
+            import hopsworks
             
             if not HOPSWORKS_API_KEY or not HOPSWORKS_PROJECT:
                 st.error("⚠ Hopsworks credentials not configured in secrets!")
                 st.error("Please add HOPSWORKS_API_KEY and HOPSWORKS_PROJECT to Streamlit Cloud secrets.")
                 return False
             
-            connection = hsfs.connection(
-                host="c.app.hopsworks.ai",
-                project=HOPSWORKS_PROJECT,
-                api_key_value=HOPSWORKS_API_KEY
+            project = hopsworks.login(
+                api_key_value=HOPSWORKS_API_KEY,
+                project=HOPSWORKS_PROJECT
             )
             
-            mr = connection.get_model_registry()
+            mr = project.get_model_registry()
             
             model_names = ['aqi_linearregression', 'aqi_xgboost', 'aqi_randomforest']
             

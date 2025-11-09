@@ -6,4 +6,4 @@ python-dotenv
 numpy<2.0
 scikit-learn
 xgboost
-hsfs[python]>=3.0.0,<4.0.0
+hopsworks==3.4.7
