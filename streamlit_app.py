@@ -62,55 +62,53 @@ class AQIPredictor:
             st.error(f"Error fetching from API: {e}")
             return None
 
-    def load_model_from_hopsworks(self):
-        """Load the best model from Hopsworks Model Registry"""
+    def load_model_from_local(self):
+        """Load the best trained model from model_artifacts directory"""
         try:
-            import hopsworks
-            
-            if not HOPSWORKS_API_KEY or not HOPSWORKS_PROJECT:
-                st.error("⚠ Hopsworks credentials not configured in secrets!")
-                st.error("Please add HOPSWORKS_API_KEY and HOPSWORKS_PROJECT to Streamlit Cloud secrets.")
+            if not os.path.exists('model_artifacts'):
+                st.error("⚠ No model_artifacts directory found!")
+                st.error("Please ensure the best model file is uploaded to the repository.")
                 return False
             
-            project = hopsworks.login(
-                api_key_value=HOPSWORKS_API_KEY,
-                project=HOPSWORKS_PROJECT
-            )
+            best_models = [
+                'LinearRegression_best.pkl',
+                'XGBoost_best.pkl',
+                'LinearRegression_for_registry.pkl',
+                'XGBoost_for_registry.pkl'
+            ]
             
-            mr = project.get_model_registry()
+            for model_file in best_models:
+                model_path = os.path.join('model_artifacts', model_file)
+                if os.path.exists(model_path):
+                    try:
+                        with open(model_path, 'rb') as f:
+                            self.model = pickle.load(f)
+                        self.model_name = model_file.replace('_best.pkl', '').replace('_for_registry.pkl', '').replace('.pkl', '').upper()
+                        st.success(f"✓ Loaded {self.model_name} model successfully")
+                        return True
+                    except Exception as e:
+                        st.warning(f"Failed to load {model_file}: {str(e)[:100]}")
+                        continue
+           
+            model_files = [f for f in os.listdir('model_artifacts') 
+                          if f.endswith('.pkl') and 'scaler' not in f and 'feature' not in f and 'selector' not in f]
             
-            model_names = ['aqi_linearregression', 'aqi_xgboost', 'aqi_randomforest']
-            
-            for model_name in model_names:
-                try:
-                    model = mr.get_model(model_name, version=1)
-                    model_dir = model.download()
-                    
-                    for file in os.listdir(model_dir):
-                        if file.endswith('.pkl'):
-                            model_path = os.path.join(model_dir, file)
-                            with open(model_path, 'rb') as f:
-                                self.model = pickle.load(f)
-                            self.model_name = model_name.replace('aqi_', '').upper()
-                            st.success(f"✓ Loaded {self.model_name} model from Hopsworks Model Registry")
-                            return True
-                except Exception as model_error:
-                    st.warning(f"Could not load {model_name}: {str(model_error)[:100]}")
-                    continue
-            
-            st.error("⚠ Failed to load any models from Hopsworks Model Registry")
-            st.error("Please check: 1) Model names in Hopsworks, 2) API key permissions, 3) Project name")
-            return False
-            
+            if model_files:
+                model_file = sorted([f for f in model_files if 'LinearRegression' in f or 'XGBoost' in f])[-1]
+                model_path = os.path.join('model_artifacts', model_file)
+                with open(model_path, 'rb') as f:
+                    self.model = pickle.load(f)
+                self.model_name = model_file.replace('.pkl', '').split('_')[0].upper()
+                st.success(f"✓ Loaded {self.model_name} model successfully")
+                return True
+            else:
+                st.error("⚠ No trained models found in model_artifacts directory!")
+                st.error("Please upload LinearRegression_best.pkl or XGBoost_best.pkl")
+                return False
+                
         except Exception as e:
-            st.error(f"⚠ Hopsworks connection failed: {str(e)[:200]}")
-            st.error("Cannot make predictions without model from Hopsworks.")
+            st.error(f"⚠ Error loading model: {str(e)}")
             return False
-
-    def load_model_locally(self):
-        """This method is deprecated - we only use Hopsworks models"""
-        st.error("⚠ Local model loading is disabled. Please configure Hopsworks credentials.")
-        return False
 
     def make_simple_prediction(self, current_data, days=3):
         """Make predictions using trained model from Hopsworks"""
@@ -211,7 +209,7 @@ class AQIPredictor:
 def get_predictor():
     if st.session_state.predictor is None:
         predictor = AQIPredictor()
-        predictor.load_model_from_hopsworks()
+        predictor.load_model_from_local()
         st.session_state.predictor = predictor
     return st.session_state.predictor
 
@@ -443,7 +441,11 @@ st.markdown("""
 def fetch_current_data():
     """Get current AQI data"""
     predictor = get_predictor()
-    return predictor.fetch_current_data_from_api()
+    data = predictor.fetch_current_data_from_api()
+    if data and 'aqi' in data:
+        aqi = data['aqi']
+        data['category'] = predictor.get_aqi_category(aqi)
+    return data
 
 @st.cache_data(ttl=300)
 def fetch_forecast_data():
@@ -671,10 +673,18 @@ if "Dashboard" in page:
     if current_data:
         # Main AQI Card
         aqi = int(current_data.get('aqi', 0))
-        category_data = current_data.get('category', {})
-        category = category_data.get('level', 'Unknown')
-        health_msg = category_data.get('health', 'No information available')
-        color = category_data.get('color', '#667eea')
+        
+        # Get category - calculate if not present
+        if 'category' in current_data and current_data['category']:
+            category_data = current_data['category']
+        else:
+            # Calculate category from AQI if missing
+            predictor = get_predictor()
+            category_data = predictor.get_aqi_category(aqi)
+        
+        category = category_data.get('level', 'Moderate')
+        health_msg = category_data.get('health', 'Air quality information')
+        color = category_data.get('color', '#ffff00')
         
         display_aqi_card(aqi, category, color, health_msg)
         
