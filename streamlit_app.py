@@ -5,15 +5,12 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta 
 import os
-import joblib
 import numpy as np
-import hopsworks
 import json
+import pickle
 
 WAQI_API_TOKEN = st.secrets["WAQI_API_TOKEN"]
 STATION_ID = st.secrets["STATION_ID"]
-HOPSWORKS_API_KEY = st.secrets["HOPSWORKS_API_KEY"]
-HOPSWORKS_PROJECT = st.secrets["HOPSWORKS_PROJECT"]
 
 if 'predictor' not in st.session_state:
     st.session_state.predictor = None
@@ -63,69 +60,39 @@ class AQIPredictor:
             st.error(f"Error fetching from API: {e}")
             return None
 
-    def load_model_from_hopsworks(self):
-        """Load the best model from Hopsworks Model Registry"""
-        try:
-            project = hopsworks.login(
-                api_key_value=HOPSWORKS_API_KEY,
-                project=HOPSWORKS_PROJECT
-            )
-            
-            mr = project.get_model_registry()
-            model_names = ['aqi_xgboost', 'aqi_randomforest', 'aqi_linearregression']
-            
-            for model_name in model_names:
-                try:
-                    model = mr.get_model(model_name, version=None)
-                    model_dir = model.download()
-                    
-                    for file in os.listdir(model_dir):
-                        if file.endswith('.pkl'):
-                            model_path = os.path.join(model_dir, file)
-                            self.model = joblib.load(model_path)
-                            self.model_name = model_name.replace('aqi_', '').upper()
-                            return True
-                except Exception as e:
-                    continue
-                    
-            return self.load_model_locally()
-            
-        except Exception as e:
-            st.error(f"Error connecting to Hopsworks: {e}")
-            return self.load_model_locally()
-
     def load_model_locally(self):
-        """Fallback: Load model from local model_artifacts/"""
+        """Load model from local model_artifacts/ or use simple rule-based prediction"""
         try:
             if not os.path.exists('model_artifacts'):
-                raise Exception("No model_artifacts directory found")
+                st.warning("No model_artifacts directory found. Using rule-based predictions.")
+                self.model_name = "RULE_BASED"
+                return True
             
             model_files = [f for f in os.listdir('model_artifacts') 
-                          if f.endswith('_best.pkl')]
-            
-            if not model_files:
-                model_files = [f for f in os.listdir('model_artifacts') 
-                              if f.endswith('.pkl') and any(x in f for x in ['XGBoost', 'RandomForest', 'LinearRegression'])]
+                          if f.endswith('.pkl')]
             
             if model_files:
                 model_file = sorted(model_files)[-1]
                 model_path = os.path.join('model_artifacts', model_file)
-                self.model = joblib.load(model_path)
+                with open(model_path, 'rb') as f:
+                    self.model = pickle.load(f)
                 self.model_name = model_file.replace('_best.pkl', '').replace('.pkl', '').upper()
                 return True
+            else:
+                st.warning("No trained models found. Using rule-based predictions.")
+                self.model_name = "RULE_BASED"
+                return True
                 
-            return False
-            
         except Exception as e:
-            st.error(f"Error loading local model: {e}")
-            return False
+            st.warning(f"Could not load model: {e}. Using rule-based predictions.")
+            self.model_name = "RULE_BASED"
+            return True
 
     def make_simple_prediction(self, current_data, days=3):
-        """Make predictions using current data"""
+        """Make predictions using current data or rule-based approach"""
         try:
-            if self.model is None:
-                st.error("No model loaded")
-                return None
+            if self.model is None or self.model_name == "RULE_BASED":
+                return self.make_rule_based_prediction(current_data, days)
             
             expected_features = self.model.n_features_in_ if hasattr(self.model, 'n_features_in_') else 50
             
@@ -158,6 +125,38 @@ class AQIPredictor:
                 pred_aqi = self.model.predict(X)[0]
                 pred_aqi = pred_aqi * trend_factor + variation
                 pred_aqi = max(0, pred_aqi)
+                
+                future_date = datetime.now() + timedelta(days=day)
+                
+                predictions.append({
+                    'day': day,
+                    'date': future_date.strftime('%Y-%m-%d'),
+                    'aqi': float(pred_aqi),
+                    'category': self.get_aqi_category(pred_aqi)
+                })
+            
+            return predictions
+            
+        except Exception as e:
+            st.warning(f"Model prediction failed: {e}. Using rule-based approach.")
+            return self.make_rule_based_prediction(current_data, days)
+    
+    def make_rule_based_prediction(self, current_data, days=3):
+        """Simple rule-based prediction using PM2.5 as primary indicator"""
+        try:
+            current_aqi = current_data.get('aqi', 0)
+            pm25 = current_data.get('pm25', 0)
+            
+            if current_aqi == 0 and pm25 > 0:
+                current_aqi = pm25 * 2.5
+            
+            predictions = []
+            for day in range(1, days + 1):
+                trend_factor = 0.95 + (np.random.random() * 0.1)
+                variation = (np.random.random() - 0.5) * 15
+                
+                pred_aqi = current_aqi * trend_factor + variation
+                pred_aqi = max(0, min(500, pred_aqi))
                 
                 future_date = datetime.now() + timedelta(days=day)
                 
@@ -217,7 +216,7 @@ class AQIPredictor:
 def get_predictor():
     if st.session_state.predictor is None:
         predictor = AQIPredictor()
-        predictor.load_model_from_hopsworks()
+        predictor.load_model_locally()
         st.session_state.predictor = predictor
     return st.session_state.predictor
 
