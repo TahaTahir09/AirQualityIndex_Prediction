@@ -11,6 +11,8 @@ import pickle
 
 WAQI_API_TOKEN = st.secrets["WAQI_API_TOKEN"]
 STATION_ID = st.secrets["STATION_ID"]
+HOPSWORKS_API_KEY = st.secrets.get("HOPSWORKS_API_KEY", "")
+HOPSWORKS_PROJECT = st.secrets.get("HOPSWORKS_PROJECT", "AQI_Project_10")
 
 if 'predictor' not in st.session_state:
     st.session_state.predictor = None
@@ -60,13 +62,50 @@ class AQIPredictor:
             st.error(f"Error fetching from API: {e}")
             return None
 
+    def load_model_from_hopsworks(self):
+        """Load the best model from Hopsworks Model Registry using hsfs"""
+        try:
+            import hsfs
+            
+            connection = hsfs.connection(
+                host="c.app.hopsworks.ai",
+                project=HOPSWORKS_PROJECT,
+                api_key_value=HOPSWORKS_API_KEY
+            )
+            
+            mr = connection.get_model_registry()
+            
+            model_names = ['aqi_xgboost', 'aqi_randomforest', 'aqi_linearregression']
+            
+            for model_name in model_names:
+                try:
+                    model = mr.get_model(model_name, version=1)
+                    model_dir = model.download()
+                    
+                    for file in os.listdir(model_dir):
+                        if file.endswith('.pkl'):
+                            model_path = os.path.join(model_dir, file)
+                            with open(model_path, 'rb') as f:
+                                self.model = pickle.load(f)
+                            self.model_name = model_name.replace('aqi_', '').upper()
+                            st.success(f"Loaded {self.model_name} model from Hopsworks")
+                            return True
+                except Exception as e:
+                    continue
+            
+            st.warning("Could not load models from Hopsworks. Trying local models...")
+            return self.load_model_locally()
+            
+        except Exception as e:
+            st.warning(f"Error connecting to Hopsworks: {e}. Trying local models...")
+            return self.load_model_locally()
+
     def load_model_locally(self):
-        """Load model from local model_artifacts/ or use simple rule-based prediction"""
+        """Load model from local model_artifacts/"""
         try:
             if not os.path.exists('model_artifacts'):
-                st.warning("No model_artifacts directory found. Using rule-based predictions.")
-                self.model_name = "RULE_BASED"
-                return True
+                st.error("No model_artifacts directory found and Hopsworks unavailable.")
+                return False
             
             model_files = [f for f in os.listdir('model_artifacts') 
                           if f.endswith('.pkl')]
@@ -77,22 +116,22 @@ class AQIPredictor:
                 with open(model_path, 'rb') as f:
                     self.model = pickle.load(f)
                 self.model_name = model_file.replace('_best.pkl', '').replace('.pkl', '').upper()
+                st.info(f"Loaded {self.model_name} model from local storage")
                 return True
             else:
-                st.warning("No trained models found. Using rule-based predictions.")
-                self.model_name = "RULE_BASED"
-                return True
+                st.error("No trained models found locally.")
+                return False
                 
         except Exception as e:
-            st.warning(f"Could not load model: {e}. Using rule-based predictions.")
-            self.model_name = "RULE_BASED"
-            return True
+            st.error(f"Could not load model: {e}")
+            return False
 
     def make_simple_prediction(self, current_data, days=3):
-        """Make predictions using current data or rule-based approach"""
+        """Make predictions using trained model"""
         try:
-            if self.model is None or self.model_name == "RULE_BASED":
-                return self.make_rule_based_prediction(current_data, days)
+            if self.model is None:
+                st.error("No model loaded. Please check Hopsworks connection or local models.")
+                return None
             
             expected_features = self.model.n_features_in_ if hasattr(self.model, 'n_features_in_') else 50
             
@@ -125,38 +164,6 @@ class AQIPredictor:
                 pred_aqi = self.model.predict(X)[0]
                 pred_aqi = pred_aqi * trend_factor + variation
                 pred_aqi = max(0, pred_aqi)
-                
-                future_date = datetime.now() + timedelta(days=day)
-                
-                predictions.append({
-                    'day': day,
-                    'date': future_date.strftime('%Y-%m-%d'),
-                    'aqi': float(pred_aqi),
-                    'category': self.get_aqi_category(pred_aqi)
-                })
-            
-            return predictions
-            
-        except Exception as e:
-            st.warning(f"Model prediction failed: {e}. Using rule-based approach.")
-            return self.make_rule_based_prediction(current_data, days)
-    
-    def make_rule_based_prediction(self, current_data, days=3):
-        """Simple rule-based prediction using PM2.5 as primary indicator"""
-        try:
-            current_aqi = current_data.get('aqi', 0)
-            pm25 = current_data.get('pm25', 0)
-            
-            if current_aqi == 0 and pm25 > 0:
-                current_aqi = pm25 * 2.5
-            
-            predictions = []
-            for day in range(1, days + 1):
-                trend_factor = 0.95 + (np.random.random() * 0.1)
-                variation = (np.random.random() - 0.5) * 15
-                
-                pred_aqi = current_aqi * trend_factor + variation
-                pred_aqi = max(0, min(500, pred_aqi))
                 
                 future_date = datetime.now() + timedelta(days=day)
                 
@@ -216,7 +223,7 @@ class AQIPredictor:
 def get_predictor():
     if st.session_state.predictor is None:
         predictor = AQIPredictor()
-        predictor.load_model_locally()
+        predictor.load_model_from_hopsworks()
         st.session_state.predictor = predictor
     return st.session_state.predictor
 

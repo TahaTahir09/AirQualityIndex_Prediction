@@ -3,6 +3,7 @@ requests
 pandas
 plotly
 python-dotenv
-numpy
+numpy<2.0
 scikit-learn
 xgboost
+hsfs[python]>=3.0.0,<4.0.0
