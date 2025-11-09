@@ -422,7 +422,7 @@ def compare_models(results, target_r2=0.5):
             'timestamp': datetime.now().isoformat(),
             'performance': "EXCELLENT" if metrics['r2'] > 0.8 else 
                          "GOOD" if metrics['r2'] > 0.7 else 
-                         "FAIR" if metrics['r2'] > 0.6 else 
+                         "WORST" if metrics['r2'] > 0.6 else 
                          "POOR" if metrics['r2'] > 0.5 else "INADEQUATE"
         })
         
@@ -602,7 +602,7 @@ def export_results_to_json(results, predictions, output_file="model_results.json
             "rmse": float(metrics['rmse']),
             "mae": float(metrics['mae']),
             "r2_score": float(metrics['r2']),
-            "performance": "Excellent" if metrics['r2'] > 0.9 else "Good" if metrics['r2'] > 0.7 else "Fair"
+            "performance": "Excellent" if metrics['r2'] > 0.9 else "Good" if metrics['r2'] > 0.7 else "Worst"
         }
         
         if 'cv_r2_mean' in metrics:

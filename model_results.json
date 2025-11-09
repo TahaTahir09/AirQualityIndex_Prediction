@@ -51,7 +51,7 @@
       "rmse": 46.28053048587121,
       "mae": 39.230454163785126,
       "r2_score": -0.268910802836267,
-      "performance": "Fair"
+      "performance": "Worst"
     }
   ],
   "best_model": "LinearRegression",
