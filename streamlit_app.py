@@ -469,6 +469,12 @@ def fetch_forecast_data():
 def fetch_model_stats():
     """Get model statistics from local file"""
     try:
+        import os
+        # Check if file exists
+        if not os.path.exists('model_results.json'):
+            st.warning("model_results.json not found in deployment")
+            return None
+            
         with open('model_results.json', 'r') as f:
             data = json.load(f)
         
