@@ -67,11 +67,22 @@ class AQIPredictor:
         try:
             import hopsworks
             
+            # Check if credentials are set
+            if not HOPSWORKS_API_KEY or not HOPSWORKS_PROJECT:
+                st.error("⚠ Hopsworks credentials not configured in secrets!")
+                st.error(f"HOPSWORKS_API_KEY: {'SET' if HOPSWORKS_API_KEY else 'NOT SET'}")
+                st.error(f"HOPSWORKS_PROJECT: {'SET' if HOPSWORKS_PROJECT else 'NOT SET'}")
+                return self.load_model_from_local()
+            
+            st.info(f"🔄 Connecting to Hopsworks project: {HOPSWORKS_PROJECT}")
+            
             # Connect to Hopsworks
             project = hopsworks.login(
                 api_key_value=HOPSWORKS_API_KEY,
                 project=HOPSWORKS_PROJECT
             )
+            
+            st.info("✓ Connected to Hopsworks successfully")
             
             # Get model registry
             mr = project.get_model_registry()
@@ -81,11 +92,24 @@ class AQIPredictor:
             
             for model_name in model_names:
                 try:
+                    st.info(f"🔍 Attempting to load model: {model_name}")
+                    
                     # Get the latest version of the model (don't hardcode version)
                     model = mr.get_model(model_name)
+                    st.info(f"✓ Found {model_name} version {model.version}")
                     
                     # Download model to temporary directory
+                    st.info(f"⬇ Downloading {model_name}...")
                     model_dir = model.download()
+                    st.info(f"✓ Downloaded to: {model_dir}")
+                    
+                    # List all files in the downloaded directory
+                    if os.path.exists(model_dir):
+                        files = os.listdir(model_dir)
+                        st.info(f"📁 Files in model directory: {', '.join(files)}")
+                    else:
+                        st.error(f"❌ Model directory doesn't exist: {model_dir}")
+                        continue
                     
                     # Try different possible file names in the downloaded directory
                     possible_files = [
@@ -96,34 +120,39 @@ class AQIPredictor:
                     ]
                     
                     # Also check all .pkl files in the directory
-                    if os.path.exists(model_dir):
-                        for file in os.listdir(model_dir):
-                            if file.endswith('.pkl') and 'scaler' not in file.lower() and 'selector' not in file.lower():
-                                possible_files.append(os.path.join(model_dir, file))
+                    for file in files:
+                        if file.endswith('.pkl') and 'scaler' not in file.lower() and 'selector' not in file.lower():
+                            possible_files.append(os.path.join(model_dir, file))
+                    
+                    st.info(f"🔎 Searching for model files...")
                     
                     # Try to load the first existing file
                     for model_file in possible_files:
                         if os.path.exists(model_file):
+                            st.info(f"✓ Found model file: {os.path.basename(model_file)}")
                             try:
                                 with open(model_file, 'rb') as f:
                                     self.model = pickle.load(f)
                                 self.model_name = model_name.replace('aqi_', '').upper()
-                                st.success(f"✓ Loaded {self.model_name} model (version {model.version}) from Hopsworks")
+                                st.success(f"✅ Successfully loaded {self.model_name} model (version {model.version}) from Hopsworks!")
                                 return True
                             except Exception as load_err:
+                                st.warning(f"Failed to load {os.path.basename(model_file)}: {str(load_err)[:100]}")
                                 continue
+                    
+                    st.warning(f"⚠ No valid model file found for {model_name} in downloaded directory")
                     
                 except Exception as e:
                     # Try next model if this one fails
-                    st.warning(f"Could not load {model_name}: {str(e)[:100]}")
+                    st.warning(f"⚠ Could not load {model_name}: {str(e)[:200]}")
                     continue
             
-            st.warning("⚠ Could not load any model from Hopsworks Model Registry")
+            st.error("❌ Could not load any model from Hopsworks Model Registry")
             st.info("Falling back to local model...")
             return self.load_model_from_local()
             
         except Exception as e:
-            st.warning(f"⚠ Hopsworks connection failed: {str(e)[:100]}")
+            st.error(f"❌ Hopsworks connection failed: {str(e)[:200]}")
             st.info("Falling back to local model...")
             return self.load_model_from_local()
 
