@@ -25,43 +25,42 @@ class HopsworksFeatureStore:
             print(" Not connected to Hopsworks")
             return None
         try:
-            feature_group = self.fs.get_or_create_feature_group(
-                name=name,
-                version=version,
-                description=description,
-                primary_key=['timestamp'],
-                event_time='datetime',
-                online_enabled=False
-            )
-            return feature_group
+            # Try to get existing feature group first
+            try:
+                feature_group = self.fs.get_feature_group(name=name, version=version)
+                print(f" Using existing feature group: {name} (version {version})")
+                return feature_group
+            except Exception:
+                # If doesn't exist, create new one with offline only
+                feature_group = self.fs.create_feature_group(
+                    name=name,
+                    version=version,
+                    description=description,
+                    primary_key=['timestamp'],
+                    event_time='datetime',
+                    online_enabled=False
+                )
+                print(f" Created new feature group: {name} (version {version})")
+                return feature_group
         except Exception as e:
-            print(f" Feature group creation failed: {e}")
+            print(f" Feature group operation failed: {e}")
             return None
     def insert_data(self, feature_group, df: pd.DataFrame) -> bool:
         try:
-            # Disable online feature store completely to avoid Kafka
-            # Get feature group statistics to check if it exists
-            try:
-                stats = feature_group.statistics_config
-                stats.enabled = False
-            except Exception:
-                pass
-            
-            # Insert with offline-only mode
-            feature_group.insert(df)
+            # Insert only to offline storage, skip online (Kafka)
+            feature_group.insert(
+                df, 
+                write_options={
+                    "start_offline_materialization": False,
+                    "wait_for_job": False
+                },
+                skip_online=True  # Critical: Skip Kafka/online storage
+            )
             print(f" Inserted {len(df)} records into feature store (offline only)")
             return True
         except Exception as e:
-            # If insert fails due to Kafka, try using materialization job
-            try:
-                print(" Attempting alternative insert method...")
-                feature_group.save(df)
-                print(f" Inserted {len(df)} records into feature store using save method")
-                return True
-            except Exception as e2:
-                print(f" Data insertion failed: {e}")
-                print(f" Alternative method also failed: {e2}")
-                return False
+            print(f" Data insertion failed: {e}")
+            return False
     def read_data(self, feature_group) -> Optional[pd.DataFrame]:
         try:
             df = feature_group.read()
