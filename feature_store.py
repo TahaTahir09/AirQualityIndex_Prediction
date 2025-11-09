@@ -47,16 +47,10 @@ class HopsworksFeatureStore:
             return None
     def insert_data(self, feature_group, df: pd.DataFrame) -> bool:
         try:
-            # Insert only to offline storage, skip online (Kafka)
-            feature_group.insert(
-                df, 
-                write_options={
-                    "start_offline_materialization": False,
-                    "wait_for_job": False
-                },
-                skip_online=True  # Critical: Skip Kafka/online storage
-            )
-            print(f" Inserted {len(df)} records into feature store (offline only)")
+            # Insert data - Hopsworks will handle offline storage automatically
+            # For GitHub Actions without Kafka, just insert to offline storage
+            feature_group.insert(df, write_options={"wait_for_job": False})
+            print(f" Inserted {len(df)} records into feature store")
             return True
         except Exception as e:
             print(f" Data insertion failed: {e}")
