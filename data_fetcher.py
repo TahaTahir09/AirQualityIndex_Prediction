@@ -33,11 +33,11 @@ class WAQIDataFetcher:
         from datetime import datetime
         collection_time = datetime.now()
         parsed = {
-            'timestamp': collection_time.strftime('%Y-%m-%d %H:%M:%S'),  # Use collection time
-            'timestamp_unix': int(collection_time.timestamp()),  # Collection time as unix
+            'timestamp': collection_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'timestamp_unix': int(collection_time.timestamp()),
             'aqi': raw_data.get('aqi'),
             'station_name': city_info.get('name'),
-            'station_url': '',  # Keep for schema compatibility
+            'station_url': '',
             'latitude': geo[0] if len(geo) > 0 else None,
             'longitude': geo[1] if len(geo) > 1 else None,
             'pm25': iaqi.get('pm25', {}).get('v'),
@@ -154,11 +154,11 @@ class DataProcessor:
             'so2_imputed', 'co_imputed', 'temperature_imputed', 'humidity_imputed',
             'pressure_imputed', 'wind_speed_imputed', 'dew_point_imputed',
             'is_weekend', 'time_of_day_numeric',
-            'hour', 'day_of_week', 'day', 'month', 'year'  # These also need int32
+            'hour', 'day_of_week', 'day', 'month', 'year'
         ]
         int64_columns = [
-            'total_imputed_features',  # Sum of imputed columns
-            'aqi_category_numeric'     # Category number
+            'total_imputed_features',
+            'aqi_category_numeric'
         ]
         for col in int32_columns:
             if col in df.columns:

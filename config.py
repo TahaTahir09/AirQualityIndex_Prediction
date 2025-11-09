@@ -1,6 +1,5 @@
 import os
 
-# API Configuration - Read from environment variables (for production) or use defaults (for local dev)
 WAQI_API_TOKEN = os.getenv("WAQI_API_TOKEN", "088661c637816f9f1463ca3e44d37da6d739d021")
 STATION_ID = os.getenv("STATION_ID", "A401143")
 HOPSWORKS_API_KEY = os.getenv("HOPSWORKS_API_KEY", "DOXxlrr308Rq2xqN.QmlA3Cfoy8ljM9h8nOiYYpxHA3EoSPGhp9qPBcONsXHRL7XIpsGjbcc80R3OoCz5")

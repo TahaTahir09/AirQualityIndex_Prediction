@@ -7,7 +7,7 @@ HOPSWORKS_API_KEY = os.getenv("HOPSWORKS_API_KEY", "DOXxlrr308Rq2xqN.QmlA3Cfoy8l
 HOPSWORKS_PROJECT = os.getenv("HOPSWORKS_PROJECT", "AQI_Project_10")
 BACKFILL_DAYS = 30
 def main():
-    print("=== AQI Historical Data Backfill ===\n")
+    print(" AQI Historical Data Backfill \n")
     df = fetch_historical_data(WAQI_API_TOKEN, STATION_ID, days=BACKFILL_DAYS, interval_hours=12)
     if df is not None:
         print(f"\nDataset: {len(df)} records, {len(df.columns)} features")

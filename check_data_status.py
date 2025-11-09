@@ -1,7 +1,3 @@
-"""
-Utility script to check data availability and recommend appropriate settings.
-Run this before training to understand your data situation.
-"""
 import pandas as pd
 from feature_store import read_features
 from config import (
@@ -17,13 +13,11 @@ def analyze_data():
     print("\n" + "="*60)
     print("AQI Data Status Check")
     print("="*60 + "\n")
-    # Current configuration
     print("Current Configuration:")
     print(f"  • Collection Interval: {COLLECTION_INTERVAL_HOURS} hour(s)")
     print(f"  • Prediction Horizon: {PREDICTION_HORIZON_DAYS} day(s)")
     print(f"  • Backfill Days: {BACKFILL_DAYS} day(s)")
     print()
-    # Fetch data
     print("Fetching data from Hopsworks...")
     try:
         df = read_features(
@@ -39,20 +33,16 @@ def analyze_data():
         print(" No data found in Feature Store!")
         print("\nRecommendation: Run backfill_pipeline.py to populate data")
         return
-    # Analyze data
     print(f" Found {len(df)} total rows\n")
-    # Check for valid AQI values
     valid_df = df[df['aqi'].notna() & (df['aqi'] != -1)]
     print(f"Data Quality:")
     print(f"  • Valid AQI records: {len(valid_df)}/{len(df)} ({len(valid_df)/len(df)*100:.1f}%)")
-    # Time range
     if 'timestamp' in df.columns or 'datetime' in df.columns:
         time_col = 'timestamp' if 'timestamp' in df.columns else 'datetime'
         df[time_col] = pd.to_datetime(df[time_col])
         print(f"  • Time range: {df[time_col].min()} to {df[time_col].max()}")
         time_span = (df[time_col].max() - df[time_col].min()).total_seconds() / 86400
         print(f"  • Time span: {time_span:.1f} days")
-    # Calculate requirements
     steps_per_day = max(1, int(24 / COLLECTION_INTERVAL_HOURS))
     max_shift = PREDICTION_HORIZON_DAYS * steps_per_day
     rows_after_shift = max(0, len(valid_df) - max_shift)
@@ -60,7 +50,6 @@ def analyze_data():
     print(f"  • Steps per day: {steps_per_day}")
     print(f"  • Shift for {PREDICTION_HORIZON_DAYS} day(s) ahead: {max_shift} rows")
     print(f"  • Rows available for training: {rows_after_shift}")
-    # Recommendations
     print("\n" + "-"*60)
     if rows_after_shift >= 50:
         print(" Status: EXCELLENT - Plenty of data for training")
@@ -76,7 +65,6 @@ def analyze_data():
     else:
         print(" Status: INSUFFICIENT - Not enough data for current settings")
         print("\nRecommendations:")
-        # Calculate what horizon would work
         for h in range(PREDICTION_HORIZON_DAYS, 0, -1):
             test_shift = h * steps_per_day
             test_rows = len(valid_df) - test_shift
@@ -85,7 +73,6 @@ def analyze_data():
                 print(f"     → This would give you {test_rows} training rows")
                 break
         else:
-            # Even 1 day doesn't work, suggest single-step
             single_step_rows = len(valid_df) - 1
             if single_step_rows >= 10:
                 print(f"  1. Use single-step prediction (next hour only)")
@@ -96,10 +83,8 @@ def analyze_data():
         print("  3. Run: python backfill_pipeline.py")
         print("  4. Wait for more data to accumulate via daily_pipeline.py")
     print("\n" + "="*60)
-    # Feature analysis
     numeric_cols = df.select_dtypes(include=['number']).columns
     print(f"\nAvailable Features: {len(numeric_cols)} numeric columns")
-    # Show missing data
     missing_pct = (df.isnull().sum() / len(df) * 100)
     if missing_pct.any():
         print("\nColumns with missing data:")

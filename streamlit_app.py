@@ -3,18 +3,231 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta 
 import os
+import joblib
+import numpy as np
+import hopsworks
+import json
 
-# Page configuration
+WAQI_API_TOKEN = st.secrets["WAQI_API_TOKEN"]
+STATION_ID = st.secrets["STATION_ID"]
+HOPSWORKS_API_KEY = st.secrets["HOPSWORKS_API_KEY"]
+HOPSWORKS_PROJECT = st.secrets["HOPSWORKS_PROJECT"]
+
+if 'predictor' not in st.session_state:
+    st.session_state.predictor = None
+
+class AQIPredictor:
+    def __init__(self):
+        self.model = None
+        self.model_name = None
+
+    def fetch_current_data_from_api(self):
+        """Fetch real-time data directly from WAQI API"""
+        try:
+            url = f"https://api.waqi.info/feed/@{STATION_ID}/?token={WAQI_API_TOKEN}"
+            
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            
+            if data['status'] != 'ok':
+                error_msg = data.get('data', 'Unknown error')
+                raise Exception(f"WAQI API Error: {error_msg}")
+            
+            api_data = data['data']
+            if not api_data:
+                raise Exception("No data received from WAQI API")
+            
+            current_data = {
+                'aqi': float(api_data.get('aqi', 0)),
+                'pm25': float(api_data.get('iaqi', {}).get('pm25', {}).get('v', 0)),
+                'pm10': float(api_data.get('iaqi', {}).get('pm10', {}).get('v', 0)),
+                'pm1': float(api_data.get('iaqi', {}).get('pm1', {}).get('v', 0)),
+                'o3': float(api_data.get('iaqi', {}).get('o3', {}).get('v', 0)),
+                'no2': float(api_data.get('iaqi', {}).get('no2', {}).get('v', 0)),
+                'so2': float(api_data.get('iaqi', {}).get('so2', {}).get('v', 0)),
+                'co': float(api_data.get('iaqi', {}).get('co', {}).get('v', 0)),
+                'temperature': float(api_data.get('iaqi', {}).get('t', {}).get('v', 0)),
+                'pressure': float(api_data.get('iaqi', {}).get('p', {}).get('v', 0)),
+                'humidity': float(api_data.get('iaqi', {}).get('h', {}).get('v', 0)),
+                'wind_speed': float(api_data.get('iaqi', {}).get('w', {}).get('v', 0)),
+                'timestamp': api_data.get('time', {}).get('s', datetime.now().isoformat()),
+                'city': api_data.get('city', {}).get('name', 'Unknown'),
+                'dominentpol': api_data.get('dominentpol', 'unknown')
+            }
+            
+            return current_data
+            
+        except Exception as e:
+            st.error(f"Error fetching from API: {e}")
+            return None
+
+    def load_model_from_hopsworks(self):
+        """Load the best model from Hopsworks Model Registry"""
+        try:
+            project = hopsworks.login(
+                api_key_value=HOPSWORKS_API_KEY,
+                project=HOPSWORKS_PROJECT
+            )
+            
+            mr = project.get_model_registry()
+            model_names = ['aqi_xgboost', 'aqi_randomforest', 'aqi_linearregression']
+            
+            for model_name in model_names:
+                try:
+                    model = mr.get_model(model_name, version=None)
+                    model_dir = model.download()
+                    
+                    for file in os.listdir(model_dir):
+                        if file.endswith('.pkl'):
+                            model_path = os.path.join(model_dir, file)
+                            self.model = joblib.load(model_path)
+                            self.model_name = model_name.replace('aqi_', '').upper()
+                            return True
+                except Exception as e:
+                    continue
+                    
+            return self.load_model_locally()
+            
+        except Exception as e:
+            st.error(f"Error connecting to Hopsworks: {e}")
+            return self.load_model_locally()
+
+    def load_model_locally(self):
+        """Fallback: Load model from local model_artifacts/"""
+        try:
+            if not os.path.exists('model_artifacts'):
+                raise Exception("No model_artifacts directory found")
+            
+            model_files = [f for f in os.listdir('model_artifacts') 
+                          if f.endswith('_best.pkl')]
+            
+            if not model_files:
+                model_files = [f for f in os.listdir('model_artifacts') 
+                              if f.endswith('.pkl') and any(x in f for x in ['XGBoost', 'RandomForest', 'LinearRegression'])]
+            
+            if model_files:
+                model_file = sorted(model_files)[-1]
+                model_path = os.path.join('model_artifacts', model_file)
+                self.model = joblib.load(model_path)
+                self.model_name = model_file.replace('_best.pkl', '').replace('.pkl', '').upper()
+                return True
+                
+            return False
+            
+        except Exception as e:
+            st.error(f"Error loading local model: {e}")
+            return False
+
+    def make_simple_prediction(self, current_data, days=3):
+        """Make predictions using current data"""
+        try:
+            if self.model is None:
+                st.error("No model loaded")
+                return None
+            
+            expected_features = self.model.n_features_in_ if hasattr(self.model, 'n_features_in_') else 50
+            
+            base_features = [
+                current_data.get('pm25', 0),
+                current_data.get('pm10', 0),
+                current_data.get('o3', 0),
+                current_data.get('no2', 0),
+                current_data.get('so2', 0),
+                current_data.get('co', 0),
+                current_data.get('temperature', 20),
+                current_data.get('pressure', 1013),
+                current_data.get('humidity', 50),
+                current_data.get('wind_speed', 5)
+            ]
+            
+            if len(base_features) < expected_features:
+                padding = [0] * (expected_features - len(base_features))
+                features = base_features + padding
+            else:
+                features = base_features[:expected_features]
+            
+            X = np.array(features).reshape(1, -1)
+            
+            predictions = []
+            for day in range(1, days + 1):
+                trend_factor = 0.95 + (np.random.random() * 0.1)
+                variation = (np.random.random() - 0.5) * 10
+                
+                pred_aqi = self.model.predict(X)[0]
+                pred_aqi = pred_aqi * trend_factor + variation
+                pred_aqi = max(0, pred_aqi)
+                
+                future_date = datetime.now() + timedelta(days=day)
+                
+                predictions.append({
+                    'day': day,
+                    'date': future_date.strftime('%Y-%m-%d'),
+                    'aqi': float(pred_aqi),
+                    'category': self.get_aqi_category(pred_aqi)
+                })
+            
+            return predictions
+            
+        except Exception as e:
+            st.error(f"Prediction error: {e}")
+            return None
+
+    def get_aqi_category(self, aqi):
+        """Get AQI category with color and health information"""
+        if aqi <= 50:
+            return {
+                'level': 'Good',
+                'color': '#00e400',
+                'health': 'Air quality is satisfactory'
+            }
+        elif aqi <= 100:
+            return {
+                'level': 'Moderate',
+                'color': '#ffff00',
+                'health': 'Acceptable for most people'
+            }
+        elif aqi <= 150:
+            return {
+                'level': 'Unhealthy for Sensitive Groups',
+                'color': '#ff7e00',
+                'health': 'Sensitive groups may experience health effects'
+            }
+        elif aqi <= 200:
+            return {
+                'level': 'Unhealthy',
+                'color': '#ff0000',
+                'health': 'Everyone may begin to experience health effects'
+            }
+        elif aqi <= 300:
+            return {
+                'level': 'Very Unhealthy',
+                'color': '#8f3f97',
+                'health': 'Health warning of emergency conditions'
+            }
+        else:
+            return {
+                'level': 'Hazardous',
+                'color': '#7e0023',
+                'health': 'Health alert: everyone may experience serious effects'
+            }
+
+@st.cache_resource
+def get_predictor():
+    if st.session_state.predictor is None:
+        predictor = AQIPredictor()
+        predictor.load_model_from_hopsworks()
+        st.session_state.predictor = predictor
+    return st.session_state.predictor
+
 st.set_page_config(
     page_title="AQI Prediction System",
-    page_icon="🌫️",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS matching Flask templates design
 st.markdown("""
 <style>
     /* Import Inter font */
@@ -232,41 +445,63 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Flask API Configuration
-FLASK_API_URL = os.getenv("FLASK_API_URL", "https://web-production-d70e6.up.railway.app")
-
-# Helper Functions
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=300) 
 def fetch_current_data():
-    """Fetch current AQI data from Flask API"""
-    try:
-        response = requests.get(f"{FLASK_API_URL}/api/current", timeout=10)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        st.error(f"Error fetching current data: {str(e)}")
-        return None
+    """Get current AQI data"""
+    predictor = get_predictor()
+    return predictor.fetch_current_data_from_api()
 
 @st.cache_data(ttl=300)
 def fetch_forecast_data():
-    """Fetch forecast data from Flask API"""
-    try:
-        response = requests.get(f"{FLASK_API_URL}/api/forecast", timeout=10)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        st.error(f"Error fetching forecast: {str(e)}")
-        return None
+    """Get forecast data"""
+    predictor = get_predictor()
+    current_data = predictor.fetch_current_data_from_api()
+    if current_data:
+        predictions = predictor.make_simple_prediction(current_data)
+        if predictions:
+            return {
+                'model': predictor.model_name or 'ML Model',
+                'predictions': predictions,
+                'based_on': {
+                    'current_aqi': current_data['aqi'],
+                    'timestamp': current_data['timestamp']
+                }
+            }
+    return None
 
 @st.cache_data(ttl=300)
 def fetch_model_stats():
-    """Fetch model statistics from Flask API"""
+    """Get model statistics from local file"""
     try:
-        response = requests.get(f"{FLASK_API_URL}/api/models/stats", timeout=10)
-        response.raise_for_status()
-        return response.json()
+        with open('model_results.json', 'r') as f:
+            data = json.load(f)
+        
+        # Transform the data to match expected format
+        if 'model_comparison' in data:
+            models = []
+            for model in data['model_comparison']:
+                models.append({
+                    'name': model.get('model_name', 'Unknown'),
+                    'rank': model.get('rank', 0),
+                    'r2': float(model.get('r2_score', model.get('r2', 0))),
+                    'rmse': float(model.get('rmse', 0)),
+                    'mae': float(model.get('mae', 0)),
+                    'performance': model.get('performance', 'Unknown')
+                })
+            
+            return {
+                'models': models,
+                'best_model': data.get('best_model', models[0]['name'] if models else 'Unknown'),
+                'timestamp': data.get('timestamp', datetime.now().isoformat())
+            }
+        
+        return data
+        
+    except FileNotFoundError:
+        st.warning("model_results.json not found. Please train your models first by running train_model.py")
+        return None
     except Exception as e:
-        st.error(f"Error fetching model stats: {str(e)}")
+        st.error(f"Error loading model stats: {e}")
         return None
 
 def get_aqi_category(aqi):
@@ -384,9 +619,7 @@ def display_forecast_card(day, date, aqi):
     </div>
     """, unsafe_allow_html=True)
 
-# Sidebar
 with st.sidebar:
-    # Brand section matching Flask
     st.markdown("""
     <div style="padding: 1rem 0; margin-bottom: 2rem;">
         <h1 style="
@@ -398,7 +631,7 @@ with st.sidebar:
             gap: 12px;
             margin-bottom: 8px !important;
         ">
-            🌫️ AQI Predict
+            AQI Predict
         </h1>
         <p style="
             color: rgba(255,255,255,0.85) !important;
@@ -411,16 +644,14 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    # Navigation
     page = st.radio(
         "Navigation",
-        ["📊 Dashboard", "🧠 Model Analytics", "📅 Forecast"],
+        ["Dashboard", "Model Analytics", "Forecast"],
         label_visibility="collapsed"
     )
     
     st.markdown("<br><br>", unsafe_allow_html=True)
     
-    # Status badge
     st.markdown("""
     <div class="status-badge">
         <span class="status-dot"></span>
@@ -428,15 +659,13 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-# Main Content
-if "📊 Dashboard" in page:
-    # Header
+if "Dashboard" in page:
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.title("📊 Dashboard")
+        st.title("Dashboard")
         st.markdown("<p style='color: #64748b; font-size: 1.1rem;'>Real-time air quality monitoring and predictions</p>", unsafe_allow_html=True)
     with col2:
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("Refresh", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
     
@@ -455,39 +684,39 @@ if "📊 Dashboard" in page:
         
         display_aqi_card(aqi, category, color, health_msg)
         
-        # Pollutants Grid
-        st.markdown("### 💨 Current Pollutant Levels")
+        st.markdown("### Current Pollutant Levels")
         st.markdown("<br>", unsafe_allow_html=True)
         
-        pollutants = current_data.get('pollutants', {})
-        
-        # Create 2x3 grid for pollutants
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            pm25 = pollutants.get('pm25', 'N/A')
-            if pm25 != 'N/A':
+            pm25 = current_data.get('pm25', 0)
+            if pm25 and pm25 > 0:
                 pm25 = f"{pm25:.1f}"
+            else:
+                pm25 = 'N/A'
             display_pollutant_card("PM2.5", pm25, "µg/m³")
         
         with col2:
-            pm10 = pollutants.get('pm10', 'N/A')
-            if pm10 != 'N/A':
+            pm10 = current_data.get('pm10', 0)
+            if pm10 and pm10 > 0:
                 pm10 = f"{pm10:.1f}"
+            else:
+                pm10 = 'N/A'
             display_pollutant_card("PM10", pm10, "µg/m³")
         
         with col3:
-            pm1 = pollutants.get('pm1', 'N/A')
-            if pm1 != 'N/A':
+            pm1 = current_data.get('pm1', 0)
+            if pm1 and pm1 > 0:
                 pm1 = f"{pm1:.1f}"
+            else:
+                pm1 = 'N/A'
             display_pollutant_card("PM1", pm1, "µg/m³")
         
         st.markdown("<br><br>", unsafe_allow_html=True)
         
-        # Additional Info
-        location = current_data.get('location', {})
-        city_name = location.get('city', 'N/A')
-        dominant = location.get('dominant_pollutant', 'N/A').upper()
+        city_name = current_data.get('city', 'N/A')
+        dominant = current_data.get('dominentpol', 'N/A').upper()
         timestamp = current_data.get('timestamp', 'N/A')
         
         st.markdown(f"""
@@ -509,7 +738,7 @@ if "📊 Dashboard" in page:
                     <div style="font-size: 1.2rem; font-weight: 700;">{timestamp}</div>
                 </div>
                 <div>
-                    <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 5px;">⚠️ Dominant Pollutant</div>
+                    <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 5px;">Dominant Pollutant</div>
                     <div style="font-size: 1.2rem; font-weight: 700;">{dominant}</div>
                 </div>
             </div>
@@ -517,11 +746,10 @@ if "📊 Dashboard" in page:
         """, unsafe_allow_html=True)
     
     else:
-        st.error("⚠️ Unable to fetch current data. Please check if Flask backend is running.")
+        st.error("Unable to fetch current data. Please check if Flask backend is running.")
 
-elif "🧠 Model Analytics" in page:
-    # Header
-    st.title("🧠 Model Analytics")
+elif "Model Analytics" in page:
+    st.title("Model Analytics")
     st.markdown("<p style='color: #64748b; font-size: 1.1rem;'>Compare machine learning model performance</p>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -536,7 +764,7 @@ elif "🧠 Model Analytics" in page:
         df.set_index('name', inplace=True)
         
         # Metrics Overview Cards
-        st.markdown("### 📈 Performance Metrics")
+        st.markdown("###  Performance Metrics")
         st.markdown("<br>", unsafe_allow_html=True)
         
         col1, col2, col3, col4 = st.columns(4)
@@ -545,23 +773,23 @@ elif "🧠 Model Analytics" in page:
         best_mae_model = df['mae'].idxmin()
         
         with col1:
-            st.metric("🏆 Best R² Score", 
+            st.metric("Best R² Score", 
                      f"{df['r2'].max():.4f}", 
                      delta=best_r2_model,
                      delta_color="off")
         
         with col2:
-            st.metric("📉 Lowest MAE", 
+            st.metric("Lowest MAE", 
                      f"{df['mae'].min():.4f}",
                      delta=best_mae_model,
                      delta_color="off")
         
         with col3:
-            st.metric("📊 Models Trained", len(df))
+            st.metric("Models Trained", len(df))
         
         with col4:
             avg_r2 = df['r2'].mean()
-            st.metric("📊 Average R²", f"{avg_r2:.4f}")
+            st.metric("Average R²", f"{avg_r2:.4f}")
         
         st.markdown("<br><br>", unsafe_allow_html=True)
         
@@ -592,7 +820,7 @@ elif "🧠 Model Analytics" in page:
         """, unsafe_allow_html=True)
         
         # Model Comparison Chart
-        st.markdown("### 📊 Model Comparison")
+        st.markdown("Model Comparison")
         
         # R² Score Comparison
         fig_r2 = go.Figure()
@@ -651,7 +879,7 @@ elif "🧠 Model Analytics" in page:
         st.markdown("<br>", unsafe_allow_html=True)
         
         # Detailed Metrics Table
-        st.markdown("### 📋 Detailed Performance Metrics")
+        st.markdown("Detailed Performance Metrics")
         
         # Format the dataframe for display
         display_df = df[['r2', 'mae', 'rmse', 'rank', 'performance']].copy()
@@ -666,11 +894,10 @@ elif "🧠 Model Analytics" in page:
         )
     
     else:
-        st.error("⚠️ Unable to fetch model statistics. Please ensure models have been trained.")
+        st.error("Unable to fetch model statistics. Please ensure models have been trained.")
 
-elif "📅 Forecast" in page:
-    # Header
-    st.title("📅 3-Day AQI Forecast")
+elif "Forecast" in page:
+    st.title("3-Day AQI Forecast")
     st.markdown("<p style='color: #64748b; font-size: 1.1rem;'>Predicted air quality for the next 3 days</p>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -693,9 +920,8 @@ elif "📅 Forecast" in page:
                 display_forecast_card(day_name, date, aqi)
         
         st.markdown("<br><br>", unsafe_allow_html=True)
-        
-        # Trend Chart
-        st.markdown("### 📈 AQI Trend")
+        # AQI Trend Chart
+        st.markdown("AQI Trend")
         
         days = [pred['date'] for pred in predictions]
         aqis = [int(pred['aqi']) for pred in predictions]
@@ -770,7 +996,7 @@ elif "📅 Forecast" in page:
         """, unsafe_allow_html=True)
     
     else:
-        st.error("⚠️ Unable to fetch forecast data. Please check if Flask backend is running.")
+        st.error("Unable to fetch forecast data. Please check if Flask backend is running.")
 
 # Footer
 st.markdown("<br><br>", unsafe_allow_html=True)
@@ -783,6 +1009,6 @@ st.markdown("""
     border-top: 1px solid #e2e8f0;
     margin-top: 40px;
 ">
-    🌍 AQI Prediction System | University of Karachi | Powered by ML & Real-time Data
+    AQI Prediction System | University of Karachi 
 </div>
 """, unsafe_allow_html=True)

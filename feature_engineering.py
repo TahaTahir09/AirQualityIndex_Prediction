@@ -56,7 +56,7 @@ def create_interaction_features(df):
         df['temp_humidity_product'] = df['temp'] * df['humidity']
         df['heat_index'] = df['temp'] + 0.5 * df['humidity']
     if 'pressure' in df.columns and 'temp' in df.columns:
-        df['pressure_temp_ratio'] = df['pressure'] / (df['temp'] + 273.15)  # Ideal gas law proxy
+        df['pressure_temp_ratio'] = df['pressure'] / (df['temp'] + 273.15)
     return df
 def create_rate_of_change_features(df, columns):
     df = df.copy()
@@ -74,10 +74,10 @@ def create_domain_specific_features(df):
                                     labels=[0, 1, 2, 3, 4, 5])
         df['aqi_category'] = df['aqi_category'].astype(float)
     if 'pm25' in df.columns:
-        df['visibility_index'] = np.exp(-0.01 * df['pm25'])  # Exponential decay
+        df['visibility_index'] = np.exp(-0.01 * df['pm25'])
     if all(col in df.columns for col in ['pm25', 'pm10', 'no2', 'so2']):
         df['respiratory_risk'] = (
-            0.5 * df['pm25'] +   # Highest weight (most harmful)
+            0.5 * df['pm25'] +
             0.3 * df['pm10'] +
             0.1 * df['no2'] +
             0.1 * df['so2']

@@ -1,13 +1,8 @@
-"""
-Upload Historical CSV Data to Hopsworks Feature Store
-Processes historical_data.csv and uploads to Hopsworks with proper feature engineering
-"""
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from feature_store import store_features
 import os
-# Hopsworks credentials
 HOPSWORKS_API_KEY = os.getenv("HOPSWORKS_API_KEY", "DOXxlrr308Rq2xqN.QmlA3Cfoy8ljM9h8nOiYYpxHA3EoSPGhp9qPBcONsXHRL7XIpsGjbcc80R3OoCz5")
 HOPSWORKS_PROJECT = os.getenv("HOPSWORKS_PROJECT", "AQI_Project_10")
 def load_historical_csv(filepath='historical_data.csv'):
@@ -30,58 +25,44 @@ def transform_to_hopsworks_schema(df):
     """
     print("\nTransforming data to Hopsworks schema...")
     transformed = pd.DataFrame()
-    # ===== TIMESTAMPS =====
-    # Generate timestamps going backwards from now (hourly)
     end_time = datetime.now()
     start_time = end_time - timedelta(hours=len(df)-1)
     timestamps = pd.date_range(start=start_time, end=end_time, periods=len(df))
     transformed['timestamp'] = timestamps.strftime('%Y-%m-%d %H:%M:%S')
     transformed['timestamp_unix'] = timestamps.astype(np.int64) // 10**9
     transformed['datetime'] = timestamps
-    # ===== STATION INFO =====
     transformed['station_name'] = 'Islamabad, Pakistan'
     transformed['station_url'] = ''
     transformed['latitude'] = 33.6844
     transformed['longitude'] = 73.0479
-    # ===== POLLUTANTS (rename to match schema and convert to int64/bigint) =====
-    # Schema expects bigint (int64) for pollutants, not float64
-    # Fill NaN values with -1 (same as data_fetcher.py does)
     transformed['aqi'] = df['aqi'].fillna(-1).round().astype('int64')
-    transformed['pm25'] = df['pm2_5'].fillna(-1).round().astype('int64')  # Rename pm2_5 to pm25
+    transformed['pm25'] = df['pm2_5'].fillna(-1).round().astype('int64')
     transformed['pm10'] = df['pm10'].fillna(-1).round().astype('int64')
     transformed['o3'] = df['o3'].fillna(-1).round().astype('int64')
     transformed['no2'] = df['no2'].fillna(-1).round().astype('int64')
     transformed['so2'] = df['so2'].fillna(-1).round().astype('int64')
     transformed['co'] = df['co'].fillna(-1).round().astype('int64')
-    # ===== WEATHER =====
-    # Fill NaN with -1 to match data_fetcher.py behavior
     transformed['temperature'] = df['temp'].fillna(-1)
     transformed['humidity'] = df['rhum'].fillna(-1)
     transformed['pressure'] = df['pres'].fillna(-1)
     transformed['wind_speed'] = df['wspd'].fillna(-1)
-    # Calculate dew point from temperature and humidity
-    # Dew point formula: Td = T - ((100 - RH)/5)
-    # Only calculate if we have valid temperature and humidity
     def calc_dew_point(row):
         if row['temp'] > 0 and row['rhum'] > 0:
             return row['temp'] - ((100 - row['rhum']) / 5)
         return -1
     transformed['dew_point'] = df.apply(calc_dew_point, axis=1)
-    # ===== IMPUTED FLAGS (all 0 since this is real data) =====
     imputed_cols = ['pm25', 'pm10', 'o3', 'no2', 'so2', 'co',
                     'temperature', 'humidity', 'pressure', 'wind_speed', 'dew_point']
     for col in imputed_cols:
-        transformed[f'{col}_imputed'] = 0  # No imputation for historical data
+        transformed[f'{col}_imputed'] = 0
     transformed['total_imputed_features'] = 0
     transformed['data_quality'] = 'valid'
-    # ===== TEMPORAL FEATURES =====
     transformed['hour'] = timestamps.hour
     transformed['day_of_week'] = timestamps.dayofweek
     transformed['day'] = timestamps.day
     transformed['month'] = timestamps.month
     transformed['year'] = timestamps.year
     transformed['is_weekend'] = (timestamps.dayofweek >= 5).astype(int)
-    # Time of day
     time_of_day = pd.cut(timestamps.hour, bins=[0, 6, 12, 18, 24],
                          labels=['Night', 'Morning', 'Afternoon', 'Evening'],
                          include_lowest=True)
@@ -89,7 +70,6 @@ def transform_to_hopsworks_schema(df):
     transformed['time_of_day_numeric'] = pd.cut(timestamps.hour, bins=[0, 6, 12, 18, 24],
                                                   labels=[0, 1, 2, 3],
                                                   include_lowest=True).astype(int)
-    # ===== AQI CATEGORY =====
     def categorize_aqi(aqi):
         if pd.isna(aqi) or aqi == -1:
             return 0
@@ -105,16 +85,12 @@ def transform_to_hopsworks_schema(df):
             return 5
         return 6
     transformed['aqi_category_numeric'] = df['aqi'].apply(categorize_aqi)
-    # Note: aqi_category string column is NOT in the schema, only aqi_category_numeric
-    # ===== ENGINEERED FEATURES =====
     transformed['temp_humidity_interaction'] = transformed['temperature'] * transformed['humidity']
     transformed['discomfort_index'] = (transformed['temperature'] -
                                        (0.55 - 0.0055 * transformed['humidity']) *
                                        (transformed['temperature'] - 14.5))
     transformed['wind_pm25_interaction'] = transformed['wind_speed'] * transformed['pm25']
     transformed['pressure_temp_ratio'] = transformed['pressure'] / (transformed['temperature'] + 273.15)
-    # ===== TYPE CONVERSIONS (match Hopsworks schema) =====
-    # int32 columns
     int32_cols = ['pm25_imputed', 'pm10_imputed', 'o3_imputed', 'no2_imputed',
                   'so2_imputed', 'co_imputed', 'temperature_imputed', 'humidity_imputed',
                   'pressure_imputed', 'wind_speed_imputed', 'dew_point_imputed',
@@ -122,7 +98,6 @@ def transform_to_hopsworks_schema(df):
     for col in int32_cols:
         if col in transformed.columns:
             transformed[col] = transformed[col].astype('int32')
-    # int64 columns
     int64_cols = ['total_imputed_features', 'aqi_category_numeric', 'timestamp_unix']
     for col in int64_cols:
         if col in transformed.columns:
@@ -153,7 +128,6 @@ def upload_in_batches(df, batch_size=1000):
             else:
                 failed_batches.append(batch_num)
                 print(f" Batch {batch_num} failed")
-                # Save failed batch
                 batch.to_csv(f'failed_batch_{batch_num}.csv', index=False)
         except Exception as e:
             print(f" Batch {batch_num} error: {e}")
@@ -164,16 +138,12 @@ def main():
     print("="*70)
     print("HISTORICAL DATA UPLOAD TO HOPSWORKS")
     print("="*70)
-    # Load CSV
     df = load_historical_csv('historical_data.csv')
-    # Transform to Hopsworks schema
     transformed_df = transform_to_hopsworks_schema(df)
-    # Show sample
     print("\n" + "="*70)
     print("SAMPLE OF TRANSFORMED DATA:")
     print("="*70)
     print(transformed_df.head(3)[['timestamp', 'aqi', 'pm25', 'temperature', 'humidity', 'aqi_category_numeric']])
-    # Confirm before upload
     print("\n" + "="*70)
     print(f"Ready to upload {len(transformed_df)} rows to Hopsworks")
     print("="*70)

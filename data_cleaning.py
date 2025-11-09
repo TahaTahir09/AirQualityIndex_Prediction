@@ -24,7 +24,7 @@ def clean_data(df, verbose=True):
     df = df[
         (df['aqi'].notna()) &
         (df['aqi'] > 0) &
-        (df['aqi'] < 500)  # 500 is max cap, usually invalid
+        (df['aqi'] < 500)
     ].copy()
     if verbose:
         print(f"   Removed {before - len(df):,} invalid AQI rows")
@@ -73,16 +73,16 @@ def clean_data(df, verbose=True):
     if verbose:
         print(f"\n STEP 5: Domain-Based Value Capping")
     value_caps = {
-        'pm25': (0, 500),    # μg/m³ - World record ~999, cap at 500
-        'pm10': (0, 600),    # μg/m³
-        'co': (0, 50000),    # μg/m³ - Typically 0-10,000
-        'no2': (0, 400),     # μg/m³
-        'o3': (0, 400),      # μg/m³
-        'so2': (0, 300),     # μg/m³
-        'temp': (-50, 60),   # °C - Extreme but possible
-        'humidity': (0, 100),# %
-        'pressure': (800, 1200), # hPa
-        'wind_speed': (0, 150)   # km/h
+        'pm25': (0, 500),
+        'pm10': (0, 600),
+        'co': (0, 50000),
+        'no2': (0, 400),
+        'o3': (0, 400),
+        'so2': (0, 300),
+        'temp': (-50, 60),
+        'humidity': (0, 100),
+        'pressure': (800, 1200),
+        'wind_speed': (0, 150)
     }
     capped_count = 0
     for col, (min_val, max_val) in value_caps.items():
@@ -113,7 +113,7 @@ def clean_data(df, verbose=True):
         correlation = df['pm25'].corr(df['aqi'])
         if verbose:
             print(f"   PM2.5 vs AQI correlation: {correlation:.3f}")
-        df['pm25_aqi_ratio'] = df['pm25'] / (df['aqi'] + 1)  # Avoid division by zero
+        df['pm25_aqi_ratio'] = df['pm25'] / (df['aqi'] + 1)
         ratio_Q1 = df['pm25_aqi_ratio'].quantile(0.05)
         ratio_Q3 = df['pm25_aqi_ratio'].quantile(0.95)
         before_ratio = len(df)
@@ -143,7 +143,7 @@ def clean_data(df, verbose=True):
     for col in smooth_cols:
         if col in df.columns:
             if len(df) > window:
-                df[f'{col}_raw'] = df[col]  # Keep raw values
+                df[f'{col}_raw'] = df[col]
                 df[col] = df[col].rolling(window=window, center=True, min_periods=1).median()
     if verbose:
         print(f"   Applied rolling median (window={window}) to pollutant sensors")

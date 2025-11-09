@@ -1,16 +1,3 @@
-"""
-Exploratory Data Analysis (EDA) for AQI Prediction Project
-===========================================================
-This script performs comprehensive EDA on your 17,568+ rows of AQI data:
-1. Data Overview & Quality Assessment
-2. Statistical Summary & Distribution Analysis
-3. Temporal Patterns & Trends
-4. Correlation Analysis
-5. Outlier Detection
-6. Feature Relationships
-7. Seasonality & Time Series Decomposition
-Run this to understand your data before training models!
-"""
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,21 +7,9 @@ from feature_store import read_features
 from config import HOPSWORKS_API_KEY, HOPSWORKS_PROJECT, FEATURE_GROUP_NAME, FEATURE_GROUP_VERSION
 import warnings
 warnings.filterwarnings('ignore')
-# Set visualization style
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (14, 6)
-# ============================================================================
-# 1. DATA OVERVIEW & QUALITY ASSESSMENT
-# ============================================================================
 def data_overview(df):
-    """
-    Provides initial understanding of dataset structure
-    Techniques Applied:
-    - Shape analysis: rows × columns
-    - Data types inspection: identifying numeric vs categorical
-    - Memory usage: understanding computational requirements
-    - Column inventory: categorizing features by type
-    """
     print("="*80)
     print("1. DATA OVERVIEW")
     print("="*80)
@@ -47,7 +22,6 @@ def data_overview(df):
     print("\n" + "-"*80)
     print("Feature Categories:")
     print("-"*80)
-    # Categorize features
     pollutants = ['aqi', 'pm25', 'pm10', 'o3', 'no2', 'so2', 'co']
     weather = ['temperature', 'humidity', 'pressure', 'wind_speed', 'dew_point']
     temporal = ['hour', 'day', 'month', 'year', 'day_of_week', 'is_weekend', 'time_of_day_numeric']
@@ -58,18 +32,9 @@ def data_overview(df):
     print(f"  • Engineered: {len([c for c in engineered if c in df.columns])} features")
     print(f"\nTotal Numeric Features: {df.select_dtypes(include=[np.number]).shape[1]}")
 def data_quality_assessment(df):
-    """
-    Evaluates data completeness and quality issues
-    Techniques Applied:
-    - Missing value analysis: identifying gaps in data
-    - Invalid value detection: finding -1 placeholders
-    - Duplicate detection: checking for repeated records
-    - Data completeness score: percentage of usable data
-    """
     print("\n" + "="*80)
     print("2. DATA QUALITY ASSESSMENT")
     print("="*80)
-    # Missing values
     missing = df.isnull().sum()
     missing_pct = (missing / len(df) * 100).round(2)
     if missing.sum() > 0:
@@ -82,7 +47,6 @@ def data_quality_assessment(df):
         print(missing_df)
     else:
         print("\n No missing (NaN) values found!")
-    # Invalid values (-1 placeholders)
     print("\n" + "-"*80)
     print("Invalid Values (marked as -1):")
     print("-"*80)
@@ -99,7 +63,6 @@ def data_quality_assessment(df):
             print(f"  • {col.upper()}: {count} rows ({pct:.2f}%)")
     else:
         print("   No invalid (-1) values in pollutant columns!")
-    # Duplicates
     print("\n" + "-"*80)
     print("Duplicate Records:")
     print("-"*80)
@@ -108,39 +71,24 @@ def data_quality_assessment(df):
         print(f"  • Duplicate timestamps: {dup_count}")
     total_dups = df.duplicated().sum()
     print(f"  • Total duplicate rows: {total_dups}")
-    # Data quality score
     valid_aqi = df[(df['aqi'].notna()) & (df['aqi'] != -1)]
     quality_score = (len(valid_aqi) / len(df) * 100)
     print("\n" + "-"*80)
     print(f"Data Quality Score: {quality_score:.2f}% usable records")
     print("-"*80)
-# ============================================================================
-# 2. STATISTICAL SUMMARY & DISTRIBUTION ANALYSIS
-# ============================================================================
 def statistical_summary(df):
-    """
-    Provides descriptive statistics for numerical features
-    Techniques Applied:
-    - Central tendency: mean, median (50th percentile)
-    - Dispersion: standard deviation, min/max, quartiles
-    - Distribution shape: identifying skewness via percentiles
-    - Outlier indicators: values beyond typical ranges
-    """
     print("\n" + "="*80)
     print("3. STATISTICAL SUMMARY")
     print("="*80)
-    # Key pollutants and weather
     key_cols = ['aqi', 'pm25', 'pm10', 'o3', 'temperature', 'humidity', 'wind_speed', 'pressure']
     available_cols = [c for c in key_cols if c in df.columns]
     if available_cols:
         print("\nKey Metrics (Valid Data Only):")
         print("-"*80)
-        # Filter valid data (exclude -1)
         valid_df = df[available_cols].replace(-1, np.nan)
         summary = valid_df.describe().T
         summary['skewness'] = valid_df.skew()
         summary['kurtosis'] = valid_df.kurtosis()
-        # Format for readability
         pd.options.display.float_format = '{:.2f}'.format
         print(summary[['mean', 'std', 'min', '25%', '50%', '75%', 'max', 'skewness']])
         pd.options.display.float_format = None
@@ -151,19 +99,10 @@ def statistical_summary(df):
         print("  • Skewness < -1: Highly left-skewed (long tail on left)")
         print("  • -0.5 < Skewness < 0.5: Approximately symmetric")
 def distribution_analysis(df):
-    """
-    Analyzes AQI category distribution and patterns
-    Techniques Applied:
-    - Frequency distribution: counting occurrences per category
-    - Percentage calculation: relative proportions
-    - Category ordering: from Good to Hazardous
-    - Air quality interpretation: health impact assessment
-    """
     print("\n" + "="*80)
     print("4. AQI CATEGORY DISTRIBUTION")
     print("="*80)
     if 'aqi_category_numeric' in df.columns:
-        # Map numeric to labels
         category_map = {
             0: 'Unknown', 1: 'Good', 2: 'Moderate',
             3: 'Unhealthy for Sensitive', 4: 'Unhealthy',
@@ -189,18 +128,7 @@ def distribution_analysis(df):
             print("  • Unhealthy (151-200): Everyone may begin to experience effects")
             print("  • Very Unhealthy (201-300): Health alert, everyone affected")
             print("  • Hazardous (301+): Health warning, emergency conditions")
-# ============================================================================
-# 3. TEMPORAL PATTERNS & TRENDS
-# ============================================================================
 def temporal_analysis(df):
-    """
-    Identifies time-based patterns in AQI data
-    Techniques Applied:
-    - Time series conversion: creating proper datetime index
-    - Resampling: aggregating to daily/monthly averages
-    - Trend detection: identifying long-term patterns
-    - Moving averages: smoothing short-term fluctuations
-    """
     print("\n" + "="*80)
     print("5. TEMPORAL PATTERNS")
     print("="*80)
@@ -209,14 +137,12 @@ def temporal_analysis(df):
         df_time = df.copy()
         df_time[time_col] = pd.to_datetime(df_time[time_col])
         df_time = df_time.set_index(time_col)
-        # Filter valid AQI
         df_time = df_time[(df_time['aqi'] != -1) & (df_time['aqi'].notna())]
         print("\nTime Range:")
         print("-"*80)
         print(f"  Start: {df_time.index.min()}")
         print(f"  End: {df_time.index.max()}")
         print(f"  Duration: {(df_time.index.max() - df_time.index.min()).days} days")
-        # Hourly patterns
         if 'hour' in df.columns:
             print("\n" + "-"*80)
             print("Hourly AQI Patterns:")
@@ -224,7 +150,6 @@ def temporal_analysis(df):
             hourly_avg = df[df['aqi'] != -1].groupby('hour')['aqi'].mean()
             print(f"  Peak AQI Hour: {hourly_avg.idxmax()}:00 (avg: {hourly_avg.max():.1f})")
             print(f"  Best AQI Hour: {hourly_avg.idxmin()}:00 (avg: {hourly_avg.min():.1f})")
-        # Day of week patterns
         if 'day_of_week' in df.columns:
             print("\n" + "-"*80)
             print("Day of Week AQI Patterns:")
@@ -234,7 +159,6 @@ def temporal_analysis(df):
             for day_num, aqi_avg in dow_avg.items():
                 if day_num < len(day_names):
                     print(f"  {day_names[day_num]:10s}: {aqi_avg:.1f}")
-        # Monthly trends
         if len(df_time) > 30:
             print("\n" + "-"*80)
             print("Monthly AQI Trends:")
@@ -243,7 +167,6 @@ def temporal_analysis(df):
             if len(monthly_avg) > 0:
                 print(f"  Highest Month: {monthly_avg.idxmax().strftime('%B %Y')} (avg: {monthly_avg.max():.1f})")
                 print(f"  Lowest Month: {monthly_avg.idxmin().strftime('%B %Y')} (avg: {monthly_avg.min():.1f})")
-                # Overall trend
                 if len(monthly_avg) >= 3:
                     recent_avg = monthly_avg[-3:].mean()
                     earlier_avg = monthly_avg[:3].mean()
@@ -254,31 +177,16 @@ def temporal_analysis(df):
                         trend = "improving"
                         change_pct = ((earlier_avg - recent_avg) / earlier_avg * 100)
                     print(f"\n  Overall Trend: {trend.upper()} ({change_pct:+.1f}%)")
-# ============================================================================
-# 4. CORRELATION ANALYSIS
-# ============================================================================
 def correlation_analysis(df):
-    """
-    Examines relationships between features
-    Techniques Applied:
-    - Pearson correlation: measuring linear relationships
-    - Correlation matrix: pairwise feature relationships
-    - Feature importance: identifying strong predictors
-    - Multicollinearity detection: finding redundant features
-    """
     print("\n" + "="*80)
     print("6. CORRELATION ANALYSIS")
     print("="*80)
-    # Select numeric columns
     numeric_cols = df.select_dtypes(include=[np.number]).columns
-    # Focus on key features
     key_features = ['aqi', 'pm25', 'pm10', 'o3', 'no2', 'so2', 'co',
                     'temperature', 'humidity', 'pressure', 'wind_speed']
     available_features = [c for c in key_features if c in numeric_cols]
     if len(available_features) > 1:
-        # Filter valid data
         corr_df = df[available_features].replace(-1, np.nan)
-        # Compute correlation matrix
         corr_matrix = corr_df.corr()
         print("\nTop Correlations with AQI:")
         print("-"*80)
@@ -297,7 +205,6 @@ def correlation_analysis(df):
         print("  • |r| < 0.4: Weak correlation")
         print("  • Positive: Features increase together")
         print("  • Negative: One increases as other decreases")
-        # Multicollinearity check
         print("\n" + "-"*80)
         print("Highly Correlated Feature Pairs (potential multicollinearity):")
         print("-"*80)
@@ -315,18 +222,7 @@ def correlation_analysis(df):
                 print(f"  {feat1} ↔ {feat2}: {corr_val:.3f}")
         else:
             print("   No severe multicollinearity detected")
-# ============================================================================
-# 5. OUTLIER DETECTION
-# ============================================================================
 def outlier_detection(df):
-    """
-    Identifies anomalous data points
-    Techniques Applied:
-    - IQR method: Interquartile Range for robust outlier detection
-    - Z-score: Standard deviations from mean
-    - Boxplot rule: Values beyond 1.5 × IQR from quartiles
-    - Domain knowledge: Checking against realistic AQI ranges
-    """
     print("\n" + "="*80)
     print("7. OUTLIER DETECTION")
     print("="*80)
@@ -352,21 +248,10 @@ def outlier_detection(df):
     print("  • < 5% outliers: Normal distribution, few anomalies")
     print("  • 5-10% outliers: Some extreme events (pollution spikes, weather extremes)")
     print("  • > 10% outliers: Highly variable data or measurement issues")
-# ============================================================================
-# 6. FEATURE RELATIONSHIPS
-# ============================================================================
 def feature_relationships(df):
-    """
-    Explores how features interact with AQI
-    Techniques Applied:
-    - Groupby aggregation: Average AQI by categories
-    - Conditional analysis: AQI patterns under different conditions
-    - Interaction effects: Combined feature impacts
-    """
     print("\n" + "="*80)
     print("8. FEATURE RELATIONSHIPS")
     print("="*80)
-    # Weekend vs Weekday
     if 'is_weekend' in df.columns:
         print("\nWeekend vs Weekday AQI:")
         print("-"*80)
@@ -377,7 +262,6 @@ def feature_relationships(df):
         print(f"  Weekend Average: {weekend_aqi:.1f}")
         diff = weekend_aqi - weekday_aqi
         print(f"  Difference: {diff:+.1f} ({'Higher' if diff > 0 else 'Lower'} on weekends)")
-    # Time of day
     if 'time_of_day_numeric' in df.columns:
         print("\n" + "-"*80)
         print("Time of Day AQI Patterns:")
@@ -389,9 +273,6 @@ def feature_relationships(df):
             if len(time_df) > 0:
                 avg_aqi = time_df['aqi'].mean()
                 print(f"  {time_labels[time_num]:20s}: {avg_aqi:.1f}")
-# ============================================================================
-# 7. MAIN EDA EXECUTION
-# ============================================================================
 def run_full_eda():
     """
     Execute complete exploratory data analysis
@@ -412,7 +293,6 @@ def run_full_eda():
         print(" No data found!")
         return
     print(f" Loaded {len(df)} rows")
-    # Run all EDA sections
     data_overview(df)
     data_quality_assessment(df)
     statistical_summary(df)

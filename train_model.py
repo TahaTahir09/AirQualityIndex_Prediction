@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 from feature_store import read_features
@@ -177,19 +176,15 @@ def perform_cross_validation(model, X, y, cv_folds=5, model_name='Model'):
     """
     print(f"\n  Cross-Validation: Using TimeSeriesSplit with {cv_folds} folds")
     
-    # Use TimeSeriesSplit for time-series data (respects temporal ordering)
     tscv = TimeSeriesSplit(n_splits=cv_folds)
     
-    # Perform cross-validation for multiple metrics
     cv_r2_scores = cross_val_score(model, X, y, cv=tscv, scoring='r2', n_jobs=-1)
     cv_neg_mse_scores = cross_val_score(model, X, y, cv=tscv, scoring='neg_mean_squared_error', n_jobs=-1)
     cv_neg_mae_scores = cross_val_score(model, X, y, cv=tscv, scoring='neg_mean_absolute_error', n_jobs=-1)
     
-    # Convert negative scores to positive
     cv_rmse_scores = np.sqrt(-cv_neg_mse_scores)
     cv_mae_scores = -cv_neg_mae_scores
     
-    # Calculate statistics
     cv_stats = {
         'r2_mean': cv_r2_scores.mean(),
         'r2_std': cv_r2_scores.std(),
@@ -216,14 +211,11 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
     models = {}
     results = {}
     
-    # MODEL 1: Linear Regression (Baseline)
     print("\n MODEL 1: Linear Regression (Baseline)")
     lr = LinearRegression()
     
-    # Perform cross-validation
     cv_stats_lr = perform_cross_validation(lr, X_train, y_train, cv_folds=5, model_name='LinearRegression')
     
-    # Train on full training set and evaluate on test set
     lr.fit(X_train, y_train)
     y_pred = lr.predict(X_test)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
@@ -265,10 +257,8 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
     else:
         rf = RandomForestRegressor(n_estimators=100, max_depth=15, random_state=42, n_jobs=-1)
     
-    # Perform cross-validation
     cv_stats_rf = perform_cross_validation(rf, X_train, y_train, cv_folds=5, model_name='RandomForest')
     
-    # Train and evaluate
     rf.fit(X_train, y_train)
     y_pred = rf.predict(X_test)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
@@ -286,7 +276,6 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
         'cv_rmse_std': cv_stats_rf['rmse_std']
     }
     
-    # MODEL 3: XGBoost (with L1/L2 Regularization)
     print("\n MODEL 3: XGBoost (with L1/L2 Regularization)")
     if optimize and len(X_train) > 500:
         print("   Optimizing with Optuna (20 trials)...")
@@ -298,8 +287,8 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
                 'subsample': trial.suggest_float('subsample', 0.6, 1.0),
                 'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
                 'gamma': trial.suggest_float('gamma', 0, 5),
-                'reg_alpha': trial.suggest_float('reg_alpha', 0, 10),  # L1 regularization
-                'reg_lambda': trial.suggest_float('reg_lambda', 0, 10),  # L2 regularization
+                'reg_alpha': trial.suggest_float('reg_alpha', 0, 10),
+                'reg_lambda': trial.suggest_float('reg_lambda', 0, 10),
                 'random_state': 42,
                 'n_jobs': -1
             }
@@ -316,16 +305,14 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
             max_depth=6, 
             learning_rate=0.1, 
             n_estimators=100,
-            reg_alpha=1.0,  # L1 regularization
-            reg_lambda=1.0,  # L2 regularization
+            reg_alpha=1.0,
+            reg_lambda=1.0,
             random_state=42, 
             n_jobs=-1
         )
     
-    # Perform cross-validation
     cv_stats_xgb = perform_cross_validation(xgb_model, X_train, y_train, cv_folds=5, model_name='XGBoost')
     
-    # Train and evaluate
     xgb_model.fit(X_train, y_train)
     y_pred = xgb_model.predict(X_test)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
@@ -411,21 +398,51 @@ def compare_models(results, target_r2=0.5):
     print("\n" + "="*80)
     print("MODEL COMPARISON")
     print("="*80)
-    sorted_results = sorted(results.items(), key=lambda x: x[1]['r2'], reverse=True)
-    for model_name, metrics in sorted_results:
-        status = "" if metrics['r2'] > target_r2 else ""
-        print(f"{status} {model_name:20s} | RMSE: {metrics['rmse']:6.2f} | MAE: {metrics['mae']:6.2f} | R²: {metrics['r2']:7.4f}")
-    best_model_name = sorted_results[0][0]
-    best_r2 = sorted_results[0][1]['r2']
+    
+    model_metrics = []
+    for model_name, metrics in results.items():
+        performance_score = float(metrics['r2']) * 0.6 + (1 - float(metrics['rmse'])/100) * 0.4
+        
+        model_metrics.append({
+            'name': model_name,
+            'metrics': metrics,
+            'performance_score': performance_score
+        })
+    
+    sorted_models = sorted(model_metrics, key=lambda x: x['performance_score'], reverse=True)
+    
+    for rank, model_data in enumerate(sorted_models, 1):
+        model_name = model_data['name']
+        performance_score = model_data['performance_score']
+        metrics = model_data['metrics']
+        
+        results[model_name].update({
+            'rank': rank,
+            'performance_score': performance_score,
+            'timestamp': datetime.now().isoformat(),
+            'performance': "EXCELLENT" if metrics['r2'] > 0.8 else 
+                         "GOOD" if metrics['r2'] > 0.7 else 
+                         "FAIR" if metrics['r2'] > 0.6 else 
+                         "POOR" if metrics['r2'] > 0.5 else "INADEQUATE"
+        })
+        
+        status = "" if metrics['r2'] > target_r2 else " "
+        print(f"{status} {rank}. {model_name:20s} | RMSE: {metrics['rmse']:6.2f} | MAE: {metrics['mae']:6.2f} | R²: {metrics['r2']:7.4f} | Score: {performance_score:.4f}")
+    
+    best_model_name = sorted_models[0]['name']
+    best_metrics = results[best_model_name]
+    
     print("\n" + "="*80)
     print(f" BEST MODEL: {best_model_name}")
-    print(f"   R² Score: {best_r2:.4f}")
-    if best_r2 > target_r2:
+    print(f"   R² Score: {best_metrics['r2']:.4f}")
+    print(f"   Performance Score: {best_metrics['performance_score']:.4f}")
+    if best_metrics['r2'] > target_r2:
         print(f"    TARGET ACHIEVED! (R² > {target_r2})")
     else:
-        print(f"     Target not reached (goal: R² > {target_r2})")
+        print(f"    Target not reached (goal: R² > {target_r2})")
     print("="*80)
-    return best_model_name, sorted_results[0][1]
+    
+    return best_model_name, best_metrics
 def save_models(models, selector, selected_features, scaler, best_model_name):
     print("\n Saving models and artifacts...")
     model_dir = "model_artifacts"
@@ -460,11 +477,9 @@ def register_to_hopsworks(model, model_name, metrics, prediction_mode, horizon=1
         project = hopsworks.login(api_key_value=HOPSWORKS_API_KEY, project=HOPSWORKS_PROJECT)
         mr = project.get_model_registry()
         
-        # Create a temp directory for this specific model
         temp_model_dir = f"temp_model_{model_name}"
         os.makedirs(temp_model_dir, exist_ok=True)
         
-        # Save the model file
         if 'LSTM' in model_name or 'CNN' in model_name:
             model_file = os.path.join(temp_model_dir, f"{model_name}.keras")
             model.save(model_file)
@@ -477,25 +492,45 @@ def register_to_hopsworks(model, model_name, metrics, prediction_mode, horizon=1
         else:
             description = f"{model_name} for multi-step ({horizon} days ahead) AQI prediction"
         
-        # Create model in registry - only numeric metrics allowed
+        performance_score = float(metrics['r2']) * 0.6 + (1 - float(metrics['rmse'])/100) * 0.4
+        
         model_obj = mr.python.create_model(
             name=f"aqi_{model_name.lower()}",
             metrics={
                 "rmse": float(metrics['rmse']),
                 "mae": float(metrics['mae']),
-                "r2": float(metrics['r2']),
-                "horizon": int(horizon)
+                "r2_score": float(metrics['r2']),
+                "horizon": int(horizon),
+                "performance_score": float(performance_score),
+                "rank": float(metrics.get('rank', 1)),
+                "timestamp": datetime.now().timestamp()
             },
-            description=f"{description} | Mode: {prediction_mode}"
+            description=f"{description} | Mode: {prediction_mode}",
+            input_example={"features": [0.0] * model.n_features_in_} if hasattr(model, 'n_features_in_') else None
         )
         
-        # Save/upload the model
+        model_version = model_obj.save(model_file)
+        
+        model_version.add_metadata({
+            "prediction_mode": prediction_mode,
+            "horizon": horizon,
+            "training_date": datetime.now().isoformat(),
+            "model_type": model_name,
+            "metrics": metrics
+        })
+        
+        if hasattr(model, 'feature_importances_'):
+            feature_imp = pd.DataFrame({
+                'feature': [f"feature_{i}" for i in range(len(model.feature_importances_))],
+                'importance': model.feature_importances_
+            }).to_dict()
+            model_version.add_metadata({"feature_importance": feature_imp})
+        
         model_obj.save(temp_model_dir)
         
-        print(f"    ✓ Model registered: aqi_{model_name.lower()}")
+        print(f"     Model registered: aqi_{model_name.lower()}")
         print(f"      Metrics - RMSE: {metrics['rmse']:.2f}, MAE: {metrics['mae']:.2f}, R²: {metrics['r2']:.4f}")
         
-        # Cleanup temp directory
         import shutil
         shutil.rmtree(temp_model_dir, ignore_errors=True)
         
@@ -570,7 +605,6 @@ def export_results_to_json(results, predictions, output_file="model_results.json
             "performance": "Excellent" if metrics['r2'] > 0.9 else "Good" if metrics['r2'] > 0.7 else "Fair"
         }
         
-        # Add cross-validation metrics if available
         if 'cv_r2_mean' in metrics:
             model_data['cv_r2_mean'] = float(metrics['cv_r2_mean'])
             model_data['cv_r2_std'] = float(metrics['cv_r2_std'])
@@ -640,7 +674,6 @@ def main(args):
     predictions = make_predictions(models_trad, df, selector, selected_features, prediction_days=3)
     json_output = export_results_to_json(results_trad, predictions)
     
-    # Register the BEST model to Hopsworks
     if args.register:
         print("\n" + "="*80)
         print(f"REGISTERING BEST MODEL ({best_model_name}) TO HOPSWORKS")
@@ -656,7 +689,7 @@ def main(args):
         
         if success:
             print("\n" + "="*80)
-            print(f"✓ Best model '{best_model_name}' successfully registered!")
+            print(f" Best model '{best_model_name}' successfully registered!")
             print("="*80)
         else:
             print("\n" + "="*80)
@@ -669,17 +702,14 @@ def main(args):
     print("\n Results saved to: model_results.json")
     print(" Models saved to: model_artifacts/")
     if args.register and success:
-        print(f" Best model '{best_model_name}' registered to Hopsworks ✓")
+        print(f" Best model '{best_model_name}' registered to Hopsworks ")
     
     return models_trad, results_trad, json_output
 if __name__ == "__main__":
-    # Run with sensible defaults and no CLI flags - do all tasks by default
     class Args:
         pass
 
     args = Args()
-    # Defaults: single-step prediction, 1-hour horizon, enable feature engineering,
-    # enable deep learning models, enable optimization, always register to Hopsworks
     args.mode = 'single'
     args.horizon = 1
     args.feature_engineering = True
@@ -689,6 +719,5 @@ if __name__ == "__main__":
     args.target_r2 = 0.5
 
     models, results, json_output = main(args)
-    # restore stdout and print final JSON output for frontend consumption
     sys.stdout = original_stdout
     print(json.dumps(json_output, indent=2))
