@@ -62,6 +62,52 @@ class AQIPredictor:
             st.error(f"Error fetching from API: {e}")
             return None
 
+    def load_model_from_hopsworks(self):
+        """Load the best model from Hopsworks Model Registry for predictions"""
+        try:
+            import hopsworks
+            
+            # Connect to Hopsworks
+            project = hopsworks.login(
+                api_key_value=HOPSWORKS_API_KEY,
+                project=HOPSWORKS_PROJECT
+            )
+            
+            # Get model registry
+            mr = project.get_model_registry()
+            
+            # Try to get the best model (LinearRegression based on model_results.json)
+            model_names = ['aqi_linearregression', 'aqi_xgboost', 'aqi_randomforest']
+            
+            for model_name in model_names:
+                try:
+                    # Get the model
+                    model = mr.get_model(model_name, version=1)
+                    
+                    # Download model to temporary directory
+                    model_dir = model.download()
+                    
+                    # Load the model file
+                    model_file = os.path.join(model_dir, f"{model_name}.pkl")
+                    if os.path.exists(model_file):
+                        with open(model_file, 'rb') as f:
+                            self.model = pickle.load(f)
+                        self.model_name = model_name.replace('aqi_', '').upper()
+                        st.success(f"✓ Loaded {self.model_name} model from Hopsworks Model Registry")
+                        return True
+                except Exception as e:
+                    # Try next model if this one fails
+                    continue
+            
+            st.warning("⚠ Could not load any model from Hopsworks Model Registry")
+            st.info("Falling back to local model...")
+            return self.load_model_from_local()
+            
+        except Exception as e:
+            st.warning(f"⚠ Hopsworks connection failed: {str(e)[:100]}")
+            st.info("Falling back to local model...")
+            return self.load_model_from_local()
+
     def load_model_from_local(self):
         """Load the best trained model from model_artifacts directory"""
         try:
@@ -207,9 +253,11 @@ class AQIPredictor:
 
 @st.cache_resource
 def get_predictor():
+    """Load predictor with model from Hopsworks for forecasting"""
     if st.session_state.predictor is None:
         predictor = AQIPredictor()
-        predictor.load_model_from_local()
+        # Try to load from Hopsworks first for predictions
+        predictor.load_model_from_hopsworks()
         st.session_state.predictor = predictor
     return st.session_state.predictor
 
