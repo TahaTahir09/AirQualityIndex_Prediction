@@ -74,15 +74,14 @@ class AQIPredictor:
                 st.error(f"HOPSWORKS_PROJECT: {'SET' if HOPSWORKS_PROJECT else 'NOT SET'}")
                 return self.load_model_from_local()
             
-            st.info(f"🔄 Connecting to Hopsworks project: {HOPSWORKS_PROJECT}")
+            with st.spinner(f"🔄 Connecting to Hopsworks project: {HOPSWORKS_PROJECT}..."):
+                # Connect to Hopsworks
+                project = hopsworks.login(
+                    api_key_value=HOPSWORKS_API_KEY,
+                    project=HOPSWORKS_PROJECT
+                )
             
-            # Connect to Hopsworks
-            project = hopsworks.login(
-                api_key_value=HOPSWORKS_API_KEY,
-                project=HOPSWORKS_PROJECT
-            )
-            
-            st.info("✓ Connected to Hopsworks successfully")
+            st.success("✓ Connected to Hopsworks successfully")
             
             # Get model registry
             mr = project.get_model_registry()
@@ -92,68 +91,85 @@ class AQIPredictor:
             
             for model_name in model_names:
                 try:
-                    st.info(f"🔍 Attempting to load model: {model_name}")
-                    
-                    # Get the latest version of the model (don't hardcode version)
-                    model = mr.get_model(model_name)
-                    st.info(f"✓ Found {model_name} version {model.version}")
-                    
-                    # Download model to temporary directory
-                    st.info(f"⬇ Downloading {model_name}...")
-                    model_dir = model.download()
-                    st.info(f"✓ Downloaded to: {model_dir}")
+                    with st.spinner(f"🔍 Loading {model_name}..."):
+                        # Get the latest version of the model (don't hardcode version)
+                        model = mr.get_model(model_name)
+                        st.info(f"✓ Found {model_name} version {model.version}")
+                        
+                        # Download model to temporary directory
+                        model_dir = model.download()
+                        st.info(f"✓ Downloaded to: {model_dir}")
                     
                     # List all files in the downloaded directory
                     if os.path.exists(model_dir):
                         files = os.listdir(model_dir)
-                        st.info(f"📁 Files in model directory: {', '.join(files)}")
+                        st.info(f"📁 Files in model directory: {', '.join(files) if files else 'EMPTY DIRECTORY'}")
+                        
+                        if not files:
+                            st.error(f"❌ Model directory is empty!")
+                            continue
                     else:
                         st.error(f"❌ Model directory doesn't exist: {model_dir}")
                         continue
                     
-                    # Try different possible file names in the downloaded directory
+                    # Try different possible file names - based on train_model.py logic
+                    # The model is saved as {model_name}.pkl (e.g., LinearRegression.pkl, XGBoost.pkl)
                     possible_files = [
-                        os.path.join(model_dir, f"{model_name}.pkl"),
+                        os.path.join(model_dir, f"{model_name.replace('aqi_', '').title()}.pkl"),  # LinearRegression.pkl
+                        os.path.join(model_dir, f"{model_name}.pkl"),  # aqi_linearregression.pkl
                         os.path.join(model_dir, "model.pkl"),
-                        os.path.join(model_dir, f"{model_name.replace('aqi_', '')}.pkl"),
-                        os.path.join(model_dir, f"{model_name.replace('aqi_', '').title()}_best.pkl")
+                        os.path.join(model_dir, f"{model_name.replace('aqi_', '')}.pkl"),  # linearregression.pkl
+                        os.path.join(model_dir, f"{model_name.replace('aqi_', '').upper()}.pkl")  # LINEARREGRESSION.pkl
                     ]
                     
                     # Also check all .pkl files in the directory
                     for file in files:
                         if file.endswith('.pkl') and 'scaler' not in file.lower() and 'selector' not in file.lower():
-                            possible_files.append(os.path.join(model_dir, file))
+                            full_path = os.path.join(model_dir, file)
+                            if full_path not in possible_files:
+                                possible_files.append(full_path)
                     
-                    st.info(f"🔎 Searching for model files...")
+                    st.info(f"🔎 Checking {len(possible_files)} possible file locations...")
                     
                     # Try to load the first existing file
+                    loaded = False
                     for model_file in possible_files:
+                        file_basename = os.path.basename(model_file)
                         if os.path.exists(model_file):
-                            st.info(f"✓ Found model file: {os.path.basename(model_file)}")
+                            st.info(f"✓ Found file: {file_basename}")
                             try:
                                 with open(model_file, 'rb') as f:
                                     self.model = pickle.load(f)
                                 self.model_name = model_name.replace('aqi_', '').upper()
                                 st.success(f"✅ Successfully loaded {self.model_name} model (version {model.version}) from Hopsworks!")
+                                loaded = True
                                 return True
                             except Exception as load_err:
-                                st.warning(f"Failed to load {os.path.basename(model_file)}: {str(load_err)[:100]}")
+                                st.warning(f"❌ Failed to load {file_basename}: {str(load_err)[:150]}")
                                 continue
                     
-                    st.warning(f"⚠ No valid model file found for {model_name} in downloaded directory")
+                    if not loaded:
+                        st.warning(f"⚠ No valid model file found for {model_name}")
+                        st.info(f"Tried these patterns: {[os.path.basename(f) for f in possible_files[:5]]}")
                     
                 except Exception as e:
                     # Try next model if this one fails
-                    st.warning(f"⚠ Could not load {model_name}: {str(e)[:200]}")
+                    import traceback
+                    error_details = traceback.format_exc()
+                    st.error(f"⚠ Error loading {model_name}:")
+                    st.code(error_details[:500], language="python")
                     continue
             
             st.error("❌ Could not load any model from Hopsworks Model Registry")
-            st.info("Falling back to local model...")
+            st.info("Attempting fallback to local model...")
             return self.load_model_from_local()
             
         except Exception as e:
-            st.error(f"❌ Hopsworks connection failed: {str(e)[:200]}")
-            st.info("Falling back to local model...")
+            import traceback
+            error_details = traceback.format_exc()
+            st.error(f"❌ Hopsworks connection failed:")
+            st.code(error_details[:500], language="python")
+            st.info("Attempting fallback to local model...")
             return self.load_model_from_local()
 
     def load_model_from_local(self):
