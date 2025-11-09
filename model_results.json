@@ -1,0 +1,120 @@
+{
+  "timestamp": "2025-11-08T17:33:52.765483",
+  "model_comparison": [
+    {
+      "rank": 1,
+      "model_name": "LinearRegression",
+      "rmse": 9.28207070056782,
+      "mae": 5.678347465025383,
+      "r2_score": 0.9487415604865123,
+      "performance": "Excellent",
+      "cv_r2_mean": 0.9551569994927025,
+      "cv_r2_std": 0.01238071095827396,
+      "cv_rmse_mean": 6.034416423711976,
+      "cv_rmse_std": 2.255895169975772
+    },
+    {
+      "rank": 2,
+      "model_name": "XGBoost",
+      "rmse": 9.414424618261549,
+      "mae": 5.434678340521384,
+      "r2_score": 0.9472693407261896,
+      "performance": "Excellent",
+      "cv_r2_mean": 0.9340906395731989,
+      "cv_r2_std": 0.02364139357083348,
+      "cv_rmse_mean": 7.32509161786936,
+      "cv_rmse_std": 2.9104351871577623
+    },
+    {
+      "rank": 3,
+      "model_name": "RandomForest",
+      "rmse": 9.567575364069658,
+      "mae": 5.695120734654095,
+      "r2_score": 0.9455397763912893,
+      "performance": "Excellent",
+      "cv_r2_mean": 0.9411680909164206,
+      "cv_r2_std": 0.018228517866180995,
+      "cv_rmse_mean": 6.985391981469773,
+      "cv_rmse_std": 2.7426867066075116
+    },
+    {
+      "rank": 4,
+      "model_name": "LSTM",
+      "rmse": 16.00577599939211,
+      "mae": 10.674019627587418,
+      "r2_score": 0.8482293104353787,
+      "performance": "Good"
+    },
+    {
+      "rank": 5,
+      "model_name": "CNN_1D",
+      "rmse": 46.28053048587121,
+      "mae": 39.230454163785126,
+      "r2_score": -0.268910802836267,
+      "performance": "Fair"
+    }
+  ],
+  "best_model": "LinearRegression",
+  "predictions_next_3_days": {
+    "LinearRegression": [
+      {
+        "day": 1,
+        "date": "2025-11-09",
+        "aqi": 196.60739659692695,
+        "category": "Unhealthy"
+      },
+      {
+        "day": 2,
+        "date": "2025-11-10",
+        "aqi": 196.60739659692695,
+        "category": "Unhealthy"
+      },
+      {
+        "day": 3,
+        "date": "2025-11-11",
+        "aqi": 196.60739659692695,
+        "category": "Unhealthy"
+      }
+    ],
+    "RandomForest": [
+      {
+        "day": 1,
+        "date": "2025-11-09",
+        "aqi": 183.2302298396049,
+        "category": "Unhealthy"
+      },
+      {
+        "day": 2,
+        "date": "2025-11-10",
+        "aqi": 183.23022983960493,
+        "category": "Unhealthy"
+      },
+      {
+        "day": 3,
+        "date": "2025-11-11",
+        "aqi": 183.23022983960493,
+        "category": "Unhealthy"
+      }
+    ],
+    "XGBoost": [
+      {
+        "day": 1,
+        "date": "2025-11-09",
+        "aqi": 173.9759979248047,
+        "category": "Unhealthy"
+      },
+      {
+        "day": 2,
+        "date": "2025-11-10",
+        "aqi": 173.9759979248047,
+        "category": "Unhealthy"
+      },
+      {
+        "day": 3,
+        "date": "2025-11-11",
+        "aqi": 173.9759979248047,
+        "category": "Unhealthy"
+      }
+    ]
+  }
+}
