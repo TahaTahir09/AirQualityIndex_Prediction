@@ -25,13 +25,11 @@ class HopsworksFeatureStore:
             print(" Not connected to Hopsworks")
             return None
         try:
-            # Try to get existing feature group first
             try:
                 feature_group = self.fs.get_feature_group(name=name, version=version)
                 print(f" Using existing feature group: {name} (version {version})")
                 return feature_group
             except Exception:
-                # If doesn't exist, create new one with offline only
                 feature_group = self.fs.create_feature_group(
                     name=name,
                     version=version,
@@ -47,8 +45,6 @@ class HopsworksFeatureStore:
             return None
     def insert_data(self, feature_group, df: pd.DataFrame) -> bool:
         try:
-            # Insert data - Hopsworks will handle offline storage automatically
-            # For GitHub Actions without Kafka, just insert to offline storage
             feature_group.insert(df, write_options={"wait_for_job": False})
             print(f" Inserted {len(df)} records into feature store")
             return True

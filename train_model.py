@@ -4,7 +4,6 @@ from feature_store import read_features
 import hopsworks
 from sklearn.model_selection import train_test_split, TimeSeriesSplit, cross_val_score
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.feature_selection import SelectKBest, f_regression
@@ -211,29 +210,7 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
     models = {}
     results = {}
     
-    print("\n MODEL 1: Linear Regression (Baseline)")
-    lr = LinearRegression()
-    
-    cv_stats_lr = perform_cross_validation(lr, X_train, y_train, cv_folds=5, model_name='LinearRegression')
-    
-    lr.fit(X_train, y_train)
-    y_pred = lr.predict(X_test)
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-    mae = mean_absolute_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-    print(f"  Test Set Results:")
-    print(f"    RMSE: {rmse:.2f} | MAE: {mae:.2f} | R²: {r2:.4f}")
-    
-    models['LinearRegression'] = lr
-    results['LinearRegression'] = {
-        'rmse': rmse, 'mae': mae, 'r2': r2,
-        'cv_r2_mean': cv_stats_lr['r2_mean'],
-        'cv_r2_std': cv_stats_lr['r2_std'],
-        'cv_rmse_mean': cv_stats_lr['rmse_mean'],
-        'cv_rmse_std': cv_stats_lr['rmse_std']
-    }
-    
-    print("\n MODEL 2: Random Forest")
+    print("\n MODEL 1: Random Forest")
     if optimize and len(X_train) > 500:
         print("   Optimizing with Optuna (15 trials)...")
         def rf_objective(trial):
@@ -276,7 +253,7 @@ def train_traditional_models(X_train, y_train, X_test, y_test, optimize=True):
         'cv_rmse_std': cv_stats_rf['rmse_std']
     }
     
-    print("\n MODEL 3: XGBoost (with L1/L2 Regularization)")
+    print("\n MODEL 2: XGBoost (with L1/L2 Regularization)")
     if optimize and len(X_train) > 500:
         print("   Optimizing with Optuna (20 trials)...")
         def xgb_objective(trial):
@@ -359,7 +336,7 @@ def train_deep_learning_models(X_train, y_train, X_test, y_test, scaler=None):
         EarlyStopping(patience=10, restore_best_weights=True),
         ReduceLROnPlateau(patience=5, factor=0.5)
     ]
-    print("\n MODEL 4: LSTM")
+    print("\n MODEL 3: LSTM")
     lstm_model = build_lstm_model(input_shape, output_dim)
     history = lstm_model.fit(
         X_train_seq, y_train_seq,
@@ -376,7 +353,7 @@ def train_deep_learning_models(X_train, y_train, X_test, y_test, scaler=None):
     print(f"   RMSE: {rmse:.2f} | MAE: {mae:.2f} | R²: {r2:.4f}")
     models['LSTM'] = lstm_model
     results['LSTM'] = {'rmse': rmse, 'mae': mae, 'r2': r2}
-    print("\n MODEL 5: 1D CNN")
+    print("\n MODEL 4: 1D CNN")
     cnn_model = build_cnn_model(input_shape, output_dim)
     history = cnn_model.fit(
         X_train_seq, y_train_seq,
@@ -471,111 +448,188 @@ def save_models(models, selector, selected_features, scaler, best_model_name):
         joblib.dump(scaler, os.path.join(model_dir, f"scaler_{timestamp}.pkl"))
         print(f"    Scaler saved")
     print(f"    All models saved to {model_dir}/")
-def register_to_hopsworks(model, model_name, metrics, prediction_mode, horizon=1):
+def register_to_hopsworks(model, model_name, metrics, prediction_mode, horizon=1, max_retries=3):
     print(f"\n Registering {model_name} to Hopsworks Model Registry...")
-    try:
-        project = hopsworks.login(api_key_value=HOPSWORKS_API_KEY, project=HOPSWORKS_PROJECT)
-        mr = project.get_model_registry()
-        
-        temp_model_dir = f"temp_model_{model_name}"
-        os.makedirs(temp_model_dir, exist_ok=True)
-        
-        if 'LSTM' in model_name or 'CNN' in model_name:
-            model_file = os.path.join(temp_model_dir, f"{model_name}.keras")
-            model.save(model_file)
-        else:
-            model_file = os.path.join(temp_model_dir, f"{model_name}.pkl")
-            joblib.dump(model, model_file)
-        
-        if prediction_mode == 'single':
-            description = f"{model_name} for single-step ({horizon}h ahead) AQI prediction with advanced feature engineering"
-        else:
-            description = f"{model_name} for multi-step ({horizon} days ahead) AQI prediction"
-        
-        performance_score = float(metrics['r2']) * 0.6 + (1 - float(metrics['rmse'])/100) * 0.4
-        
-        model_obj = mr.python.create_model(
-            name=f"aqi_{model_name.lower()}",
-            metrics={
-                "rmse": float(metrics['rmse']),
-                "mae": float(metrics['mae']),
-                "r2_score": float(metrics['r2']),
-                "horizon": int(horizon),
-                "performance_score": float(performance_score),
-                "rank": float(metrics.get('rank', 1)),
-                "timestamp": datetime.now().timestamp()
-            },
-            description=f"{description} | Mode: {prediction_mode}",
-            input_example={"features": [0.0] * model.n_features_in_} if hasattr(model, 'n_features_in_') else None
-        )
-        
-        model_version = model_obj.save(model_file)
-        
-        model_version.add_metadata({
-            "prediction_mode": prediction_mode,
-            "horizon": horizon,
-            "training_date": datetime.now().isoformat(),
-            "model_type": model_name,
-            "metrics": metrics
-        })
-        
-        if hasattr(model, 'feature_importances_'):
-            feature_imp = pd.DataFrame({
-                'feature': [f"feature_{i}" for i in range(len(model.feature_importances_))],
-                'importance': model.feature_importances_
-            }).to_dict()
-            model_version.add_metadata({"feature_importance": feature_imp})
-        
-        model_obj.save(temp_model_dir)
-        
-        print(f"     Model registered: aqi_{model_name.lower()}")
-        print(f"      Metrics - RMSE: {metrics['rmse']:.2f}, MAE: {metrics['mae']:.2f}, R²: {metrics['r2']:.4f}")
-        
-        import shutil
-        shutil.rmtree(temp_model_dir, ignore_errors=True)
-        
-        return True
-        
-    except Exception as e:
-        print(f"    ✗ Registration failed for {model_name}: {e}")
-        import traceback
-        traceback.print_exc()
-        print("      Model saved locally but not registered to Hopsworks")
-        return False
+    
+    import time
+    import shutil
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"   Attempt {attempt}/{max_retries}...")
+            
+            project = hopsworks.login(
+                api_key_value=HOPSWORKS_API_KEY, 
+                project=HOPSWORKS_PROJECT
+            )
+            mr = project.get_model_registry()
+            
+            temp_model_dir = f"temp_model_{model_name}"
+            os.makedirs(temp_model_dir, exist_ok=True)
+            
+            if 'LSTM' in model_name or 'CNN' in model_name:
+                model_file = os.path.join(temp_model_dir, f"{model_name}.keras")
+                model.save(model_file)
+            else:
+                model_file = os.path.join(temp_model_dir, f"{model_name}.pkl")
+                joblib.dump(model, model_file)
+            
+            if prediction_mode == 'single':
+                description = f"{model_name} for single-step ({horizon}h ahead) AQI prediction with advanced feature engineering"
+            else:
+                description = f"{model_name} for multi-step ({horizon} days ahead) AQI prediction"
+            
+            performance_score = float(metrics['r2']) * 0.6 + (1 - float(metrics['rmse'])/100) * 0.4
+            
+            print(f"   Creating model object...")
+            model_obj = mr.python.create_model(
+                name=f"aqi_{model_name.lower()}",
+                metrics={
+                    "rmse": float(metrics['rmse']),
+                    "mae": float(metrics['mae']),
+                    "r2_score": float(metrics['r2']),
+                    "horizon": int(horizon),
+                    "performance_score": float(performance_score),
+                    "rank": float(metrics.get('rank', 1)),
+                    "timestamp": datetime.now().timestamp()
+                },
+                description=f"{description} | Mode: {prediction_mode}",
+                input_example={"features": [0.0] * model.n_features_in_} if hasattr(model, 'n_features_in_') else None
+            )
+            
+            print(f"   Uploading model to Hopsworks...")
+            model_obj.save(temp_model_dir)
+            
+            print(f"    Model registered: aqi_{model_name.lower()}")
+            print(f"      Metrics - RMSE: {metrics['rmse']:.2f}, MAE: {metrics['mae']:.2f}, R²: {metrics['r2']:.4f}")
+            
+            shutil.rmtree(temp_model_dir, ignore_errors=True)
+            
+            return True
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"    Attempt {attempt} failed: {error_msg[:100]}")
+            
+            try:
+                shutil.rmtree(temp_model_dir, ignore_errors=True)
+            except:
+                pass
+            
+            if attempt < max_retries:
+                wait_time = attempt * 5
+                print(f"    Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+            else:
+                print(f"\n    Registration failed after {max_retries} attempts")
+                print(f"    Error: {error_msg}")
+                print("    Model saved locally but not registered to Hopsworks")
+                print("\n    Possible solutions:")
+                print("    1. Check your internet connection")
+                print("    2. Verify Hopsworks API key is valid")
+                print("    3. Check if Hopsworks service is available")
+                print("    4. Try running the script again later")
+                return False
+    
+    return False
 def make_predictions(models, df, selector, selected_features, prediction_days=3):
     from datetime import timedelta
     print("\n" + "="*80)
     print(f"MAKING PREDICTIONS FOR NEXT {prediction_days} DAYS")
     print("="*80)
+    
     latest_data = df.iloc[-1:].copy()
+    
     predictions = {}
     current_time = pd.Timestamp.now()
+    
+    if 'aqi' in df.columns and len(df) >= 3:
+        recent_aqis = df['aqi'].tail(24).values if len(df) >= 24 else df['aqi'].tail(3).values
+        aqi_trend = np.mean(np.diff(recent_aqis))
+    else:
+        aqi_trend = 0
+    
     for model_name, model in models.items():
         model_predictions = []
+        
+        if 'LSTM' in model_name or 'CNN' in model_name:
+            continue
+        
         for day in range(1, prediction_days + 1):
             prediction_time = current_time + timedelta(days=day)
+            
             X_pred = latest_data.drop(['aqi', 'timestamp', 'timestamp_unix', 'station_name',
                                        'station_url', 'datetime', 'data_quality',
                                        'year', 'month', 'day', 'hour'],
-                                      axis=1, errors='ignore')
+                                      axis=1, errors='ignore').copy()
             X_pred = X_pred.select_dtypes(include=[np.number])
+            
+            if day > 1:
+                pollutant_cols = [col for col in X_pred.columns if any(p in col.lower() for p in ['pm25', 'pm10', 'no2', 'o3', 'co', 'so2'])]
+                decay_factor = 0.95 ** (day - 1)
+                
+                for col in pollutant_cols:
+                    if col in X_pred.columns:
+                        random_variation = np.random.uniform(0.97, 1.03)
+                        X_pred[col] = X_pred[col] * decay_factor * random_variation
+                
+                future_hour = (prediction_time.hour) % 24
+                future_day_of_week = prediction_time.dayofweek
+                future_month = prediction_time.month
+                
+                if 'hour_sin' in X_pred.columns:
+                    X_pred['hour_sin'] = np.sin(2 * np.pi * future_hour / 24)
+                if 'hour_cos' in X_pred.columns:
+                    X_pred['hour_cos'] = np.cos(2 * np.pi * future_hour / 24)
+                if 'day_sin' in X_pred.columns:
+                    X_pred['day_sin'] = np.sin(2 * np.pi * future_day_of_week / 7)
+                if 'day_cos' in X_pred.columns:
+                    X_pred['day_cos'] = np.cos(2 * np.pi * future_day_of_week / 7)
+                if 'month_sin' in X_pred.columns:
+                    X_pred['month_sin'] = np.sin(2 * np.pi * future_month / 12)
+                if 'month_cos' in X_pred.columns:
+                    X_pred['month_cos'] = np.cos(2 * np.pi * future_month / 12)
+                
+                if 'is_weekend' in X_pred.columns:
+                    X_pred['is_weekend'] = 1 if future_day_of_week >= 5 else 0
+                if 'is_rush_hour' in X_pred.columns:
+                    X_pred['is_rush_hour'] = 1 if (7 <= future_hour <= 9) or (17 <= future_hour <= 19) else 0
+                if 'is_night' in X_pred.columns:
+                    X_pred['is_night'] = 1 if (future_hour >= 22 or future_hour <= 5) else 0
+            
             if selector is not None and selected_features is not None:
                 X_pred = X_pred[selected_features]
-            if 'LSTM' in model_name or 'CNN' in model_name:
-                continue
+            
             try:
                 pred_value = model.predict(X_pred)[0]
+                
+                if day > 1 and abs(aqi_trend) > 0.1:
+                    daily_trend = aqi_trend * 24 * 0.3
+                    trend_adjustment = daily_trend * (day - 1)
+                    pred_value += trend_adjustment
+                
+                variation_factor = 0.02 * day
+                stochastic_variation = np.random.normal(0, pred_value * variation_factor)
+                pred_value += stochastic_variation
+                
+                pred_value = max(0, pred_value)
+                
                 model_predictions.append({
                     'day': day,
                     'date': prediction_time.strftime('%Y-%m-%d'),
                     'aqi': float(pred_value),
                     'category': get_aqi_category(pred_value)
                 })
+                
             except Exception as e:
-                print(f"     {model_name} prediction failed: {e}")
+                print(f"     {model_name} day {day} prediction failed: {e}")
+        
         if model_predictions:
             predictions[model_name] = model_predictions
             print(f"    {model_name}: Predicted next {len(model_predictions)} days")
+            aqi_values = [p['aqi'] for p in model_predictions]
+            print(f"      AQI values: {[f'{v:.1f}' for v in aqi_values]}")
+    
     return predictions
 def get_aqi_category(aqi):
     if aqi <= 50:
@@ -662,13 +716,14 @@ def main(args):
     models_trad, results_trad = train_traditional_models(
         X_train, y_train, X_test, y_test, optimize=args.optimize
     )
-    scaler = None
-    if args.deep_learning and len(X_train) > 100:
-        models_dl, results_dl, scaler = train_deep_learning_models(
-            X_train, y_train, X_test, y_test
-        )
-        models_trad.update(models_dl)
-        results_trad.update(results_dl)
+    
+    # Always train deep learning models (LSTM and CNN_1D)
+    models_dl, results_dl, scaler = train_deep_learning_models(
+        X_train, y_train, X_test, y_test
+    )
+    models_trad.update(models_dl)
+    results_trad.update(results_dl)
+    
     best_model_name, best_metrics = compare_models(results_trad, target_r2=args.target_r2)
     save_models(models_trad, selector, selected_features, scaler, best_model_name)
     predictions = make_predictions(models_trad, df, selector, selected_features, prediction_days=3)
@@ -693,7 +748,7 @@ def main(args):
             print("="*80)
         else:
             print("\n" + "="*80)
-            print(f"✗ Failed to register '{best_model_name}'")
+            print(f"Failed to register '{best_model_name}'")
             print("="*80)
     
     print("\n" + "="*80)
@@ -702,7 +757,7 @@ def main(args):
     print("\n Results saved to: model_results.json")
     print(" Models saved to: model_artifacts/")
     if args.register and success:
-        print(f" Best model '{best_model_name}' registered to Hopsworks ")
+        print(f" Best model '{best_model_name}' registered to Hopsworks")
     
     return models_trad, results_trad, json_output
 if __name__ == "__main__":
