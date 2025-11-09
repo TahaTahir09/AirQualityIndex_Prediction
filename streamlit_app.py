@@ -561,21 +561,40 @@ def fetch_current_data():
 
 @st.cache_data(ttl=300)
 def fetch_forecast_data():
-    """Get forecast data"""
-    predictor = get_predictor()
-    current_data = predictor.fetch_current_data_from_api()
-    if current_data:
+    """Get forecast data using model from Hopsworks or local"""
+    try:
+        predictor = get_predictor()
+        
+        # Check if model is loaded
+        if predictor.model is None:
+            st.error("⚠ Model not loaded. Please check the error messages above.")
+            return None
+        
+        # Fetch current data
+        current_data = predictor.fetch_current_data_from_api()
+        if not current_data:
+            st.error("⚠ Failed to fetch current air quality data from API")
+            return None
+        
+        # Make predictions
         predictions = predictor.make_simple_prediction(current_data)
-        if predictions:
-            return {
-                'model': predictor.model_name or 'ML Model',
-                'predictions': predictions,
-                'based_on': {
-                    'current_aqi': current_data['aqi'],
-                    'timestamp': current_data['timestamp']
-                }
+        if not predictions:
+            st.error("⚠ Failed to generate predictions. Check model compatibility.")
+            return None
+        
+        return {
+            'model': predictor.model_name or 'ML Model',
+            'predictions': predictions,
+            'based_on': {
+                'current_aqi': current_data['aqi'],
+                'timestamp': current_data['timestamp']
             }
-    return None
+        }
+    except Exception as e:
+        st.error(f"❌ Error generating forecast: {str(e)[:200]}")
+        import traceback
+        st.code(traceback.format_exc()[:500], language="python")
+        return None
 
 @st.cache_data(ttl=300)
 def fetch_model_stats():
@@ -1026,6 +1045,14 @@ elif "Forecast" in page:
     st.markdown("<p style='color: #64748b; font-size: 1.1rem;'>Predicted air quality for the next 3 days</p>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
+    # Show model loading status in an expander
+    with st.expander("🔍 Model Loading Details", expanded=False):
+        predictor = get_predictor()
+        if predictor.model:
+            st.success(f"✅ Model loaded: {predictor.model_name}")
+        else:
+            st.error("❌ No model loaded - see messages above for details")
+    
     # Fetch forecast
     forecast_data = fetch_forecast_data()
     
@@ -1121,7 +1148,18 @@ elif "Forecast" in page:
         """, unsafe_allow_html=True)
     
     else:
-        st.error("Unable to fetch forecast data. Please check if Flask backend is running.")
+        st.error("❌ Unable to generate forecast")
+        st.info("💡 **Troubleshooting Steps:**")
+        st.markdown("""
+        1. Check the 'Model Loading Details' section above for errors
+        2. Verify that your Hopsworks credentials are configured in Streamlit secrets
+        3. Ensure the model exists in Hopsworks Model Registry
+        4. Try refreshing the page (press R or reload browser)
+        """)
+        
+        if st.button("🔄 Retry Loading Model"):
+            st.cache_resource.clear()
+            st.rerun()
 
 # Footer
 st.markdown("<br><br>", unsafe_allow_html=True)
